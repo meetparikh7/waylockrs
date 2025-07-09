@@ -1,5 +1,6 @@
 mod auth;
 mod constants;
+mod easy_surface;
 
 use std::env;
 
@@ -17,16 +18,15 @@ use smithay_client_toolkit::{
             window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
         },
     },
-    shm::{
-        Shm, ShmHandler,
-        slot::{Buffer, SlotPool},
-    },
+    shm::{Shm, ShmHandler, slot::SlotPool},
 };
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
     protocol::{wl_output, wl_shm, wl_surface},
 };
+
+use crate::easy_surface::EasySurface;
 
 pub fn old_main() {
     match rpassword::prompt_password("Enter password: ") {
@@ -89,14 +89,11 @@ fn main() {
         // the correct options.
         window.commit();
 
+        let surface = window.wl_surface().clone();
         state.windows.push(ImageViewer {
-            width: image.width(),
-            height: image.height(),
             window,
             image,
-            first_configure: true,
-            damaged: true,
-            buffer: None,
+            buffer: EasySurface::new(surface, wl_shm::Format::Argb8888),
         });
     }
 
@@ -134,11 +131,7 @@ struct State {
 struct ImageViewer {
     window: Window,
     image: image::RgbaImage,
-    width: u32,
-    height: u32,
-    buffer: Option<Buffer>,
-    first_configure: bool,
-    damaged: bool,
+    buffer: EasySurface,
 }
 
 impl CompositorHandler for State {
@@ -167,9 +160,9 @@ impl CompositorHandler for State {
         conn: &Connection,
         qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
-        _time: u32,
+        time: u32,
     ) {
-        self.draw(conn, qh);
+        self.draw(conn, qh, time);
     }
 
     fn surface_enter(
@@ -241,15 +234,14 @@ impl WindowHandler for State {
                 continue;
             }
 
-            viewer.buffer = None;
-            viewer.width = configure.new_size.0.map(|v| v.get()).unwrap_or(256);
-            viewer.height = configure.new_size.1.map(|v| v.get()).unwrap_or(256);
-            viewer.damaged = true;
+            let width = configure.new_size.0.map(|v| v.get()).unwrap_or(256);
+            let height = configure.new_size.1.map(|v| v.get()).unwrap_or(256);
 
-            // Initiate the first draw.
-            viewer.first_configure = false;
+            viewer
+                .buffer
+                .configure(&self.shm_state, width as i32, height as i32);
         }
-        self.draw(conn, qh);
+        self.draw(conn, qh, 0);
     }
 }
 
@@ -260,54 +252,17 @@ impl ShmHandler for State {
 }
 
 impl State {
-    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>) {
+    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, time: u32) {
         for viewer in &mut self.windows {
-            if viewer.first_configure || !viewer.damaged {
-                continue;
-            }
-            let window = &viewer.window;
-            let width = viewer.width;
-            let height = viewer.height;
-            let stride = viewer.width as i32 * 4;
-            let pool = self.pool.as_mut().unwrap();
-
-            let buffer = viewer.buffer.get_or_insert_with(|| {
-                pool.create_buffer(
-                    width as i32,
-                    height as i32,
-                    stride,
-                    wl_shm::Format::Argb8888,
-                )
-                .expect("create buffer")
-                .0
-            });
-
-            let canvas = match pool.canvas(buffer) {
-                Some(canvas) => canvas,
-                None => {
-                    // This should be rare, but if the compositor has not released the previous
-                    // buffer, we need double-buffering.
-                    let (second_buffer, canvas) = pool
-                        .create_buffer(
-                            viewer.width as i32,
-                            viewer.height as i32,
-                            stride,
-                            wl_shm::Format::Argb8888,
-                        )
-                        .expect("create buffer");
-                    *buffer = second_buffer;
-                    canvas
-                }
-            };
-
-            // Draw to the window:
-            {
+            viewer.buffer.render(qh, |_buffer, canvas, width, height| {
                 let image = image::imageops::resize(
                     &viewer.image,
-                    viewer.width,
-                    viewer.height,
+                    width as u32,
+                    height as u32,
                     image::imageops::FilterType::Nearest,
                 );
+
+                let image = image::imageops::huerotate(&image, (time % 360) as i32);
 
                 for (pixel, argb) in image.pixels().zip(canvas.chunks_exact_mut(4)) {
                     // We do this in an horribly inefficient manner, for the sake of simplicity.
@@ -319,22 +274,7 @@ impl State {
                     argb[1] = pixel.0[1];
                     argb[0] = pixel.0[2];
                 }
-            }
-
-            // Damage the entire window
-            window
-                .wl_surface()
-                .damage_buffer(0, 0, viewer.width as i32, viewer.height as i32);
-            viewer.damaged = false;
-
-            // Request our next frame
-            window.wl_surface().frame(qh, window.wl_surface().clone());
-
-            // Attach and commit to present.
-            buffer
-                .attach_to(window.wl_surface())
-                .expect("buffer attach");
-            window.wl_surface().commit();
+            });
         }
     }
 }
