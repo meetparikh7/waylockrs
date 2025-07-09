@@ -20,7 +20,6 @@ struct EasySurfaceInner {
 pub struct EasySurface {
     surface: WlSurface,
     format: wl_shm::Format,
-    re_rendering: bool,
     inner: Option<EasySurfaceInner>,
 }
 
@@ -29,7 +28,6 @@ impl EasySurface {
         Self {
             surface,
             format,
-            re_rendering: false,
             inner: None,
         }
     }
@@ -72,15 +70,19 @@ impl EasySurface {
         (inner.width, inner.height)
     }
 
-    fn get_active(&mut self) -> (&mut Buffer, &mut [u8]) {
+    fn get_active(&mut self) -> Option<(&mut Buffer, &mut [u8])> {
         let inner = self.inner.as_mut().expect("Get inner");
         let buffer = if inner.slots.0.has_active_buffers() {
             &mut inner.buffers.1
         } else {
             &mut inner.buffers.0
         };
+        if buffer.slot().has_active_buffers() {
+            return None;
+        }
+
         let canvas = inner.pool.canvas(buffer).expect("Unable to get canvas");
-        return (buffer, canvas);
+        return Some((buffer, canvas));
     }
 
     pub fn render<F, D>(&mut self, qh: &QueueHandle<D>, render: F)
@@ -88,20 +90,22 @@ impl EasySurface {
         F: FnOnce(&mut Buffer, &mut [u8], i32, i32) -> (),
         D: wayland_client::Dispatch<wl_callback::WlCallback, WlSurface> + 'static,
     {
-        if self.inner.is_none() || self.re_rendering {
+        if self.inner.is_none() {
+            // Not configured
             return;
         }
 
-        self.re_rendering = true;
         let surface_copy = self.surface.clone();
         let (width, height) = self.get_size();
-        let (buffer, data) = self.get_active();
-        render(buffer, data, width, height);
-        buffer.attach_to(&surface_copy).expect("buffer attach");
-        self.surface.damage_buffer(0, 0, width, height);
-        self.surface.commit();
-        self.re_rendering = false;
 
-        self.surface.frame(qh, surface_copy);
+        // Render and commit if buffers are available, otherwise do nothing as the
+        // other invoker would trigger a next frame
+        if let Some((buffer, data)) = self.get_active() {
+            render(buffer, data, width, height);
+            buffer.attach_to(&surface_copy).expect("buffer attach");
+            self.surface.damage_buffer(0, 0, width, height);
+            self.surface.commit();
+            self.surface.frame(qh, surface_copy);
+        }
     }
 }
