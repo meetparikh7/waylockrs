@@ -7,11 +7,15 @@ use std::env;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
-    delegate_compositor, delegate_output, delegate_registry, delegate_shm, delegate_xdg_shell,
-    delegate_xdg_window,
+    delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
+    delegate_shm, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{
+        self, SeatHandler, SeatState,
+        keyboard::{self, KeyboardHandler},
+    },
     shell::{
         WaylandSurface,
         xdg::{
@@ -24,20 +28,13 @@ use smithay_client_toolkit::{
 use wayland_client::{
     Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_output, wl_shm, wl_surface},
+    protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
 };
 
 use crate::{
     background_image::{BackgroundMode, load_image, render_background_image},
     easy_surface::EasySurface,
 };
-
-pub fn old_main() {
-    match rpassword::prompt_password("Enter password: ") {
-        Err(_) => eprintln!("Failed to get password"),
-        Ok(password) => println!("{:?}", auth::verify(password.as_str())),
-    };
-}
 
 fn main() {
     env_logger::init();
@@ -52,10 +49,12 @@ fn main() {
         output_state: OutputState::new(&globals, &qh),
         compositor_state: CompositorState::bind(&globals, &qh)
             .expect("wl_compositor not available"),
+        seat_state: SeatState::new(&globals, &qh),
         shm_state: Shm::bind(&globals, &qh).expect("wl_shm not available"),
         xdg_shell_state: XdgShell::bind(&globals, &qh).expect("xdg shell not available"),
 
         windows: Vec::new(),
+        password: String::new(),
     };
 
     for path in env::args_os().skip(1) {
@@ -106,9 +105,11 @@ struct State {
     output_state: OutputState,
     compositor_state: CompositorState,
     shm_state: Shm,
+    seat_state: SeatState,
     xdg_shell_state: XdgShell,
 
     windows: Vec<ImageViewer>,
+    password: String,
 }
 
 struct ImageViewer {
@@ -234,6 +235,101 @@ impl ShmHandler for State {
     }
 }
 
+impl SeatHandler for State {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: seat::Capability,
+    ) {
+        if capability == seat::Capability::Keyboard {
+            let _keyboard = self.seat_state.get_keyboard(&qh, &seat, Option::None);
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _seat: wl_seat::WlSeat,
+        _capability: seat::Capability,
+    ) {
+    }
+
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wl_seat::WlSeat) {
+    }
+}
+
+impl KeyboardHandler for State {
+    fn enter(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+        _raw: &[u32],
+        _keysyms: &[keyboard::Keysym],
+    ) {
+    }
+
+    fn leave(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        _surface: &wl_surface::WlSurface,
+        _serial: u32,
+    ) {
+    }
+
+    fn press_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        _serial: u32,
+        event: keyboard::KeyEvent,
+    ) {
+        if event.keysym == keyboard::Keysym::Return {
+            let verification = auth::verify(&self.password);
+            println!("Auth verify {:?} {:?}", verification, &self.password);
+            self.password.clear();
+        } else if let Some(input) = &event.utf8 {
+            self.password.push_str(&input);
+        }
+        println!("press {:?} {:?}", event.utf8, event.keysym);
+    }
+
+    fn release_key(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _event: keyboard::KeyEvent,
+    ) {
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        _serial: u32,
+        _modifiers: keyboard::Modifiers,
+        _layout: u32,
+    ) {
+    }
+}
+
 impl State {
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         for viewer in &mut self.windows {
@@ -276,10 +372,12 @@ impl State {
 
 delegate_compositor!(State);
 delegate_output!(State);
-delegate_shm!(State);
-
 delegate_xdg_shell!(State);
 delegate_xdg_window!(State);
+delegate_shm!(State);
+
+delegate_seat!(State);
+delegate_keyboard!(State);
 
 delegate_registry!(State);
 
