@@ -333,39 +333,43 @@ impl KeyboardHandler for State {
 impl State {
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         for viewer in &mut self.windows {
-            viewer.buffer.render(qh, |_buffer, canvas, width, height| {
-                let stride = width * 4;
+            viewer
+                .buffer
+                .render(qh, |_buffer, canvas, width, height, resized| {
+                    if resized {
+                        let stride = width * 4;
+                        println!("Resized {resized}");
+                        let cairo_surface = unsafe {
+                            cairo::ImageSurface::create_for_data_unsafe(
+                                canvas.first_mut().unwrap(),
+                                cairo::Format::ARgb32,
+                                width,
+                                height,
+                                stride,
+                            )
+                            .unwrap()
+                        };
+                        let context = cairo::Context::new(&cairo_surface).unwrap();
+                        context.set_antialias(cairo::Antialias::Best);
+                        context.save().unwrap();
 
-                let cairo_surface = unsafe {
-                    cairo::ImageSurface::create_for_data_unsafe(
-                        canvas.first_mut().unwrap(),
-                        cairo::Format::ARgb32,
-                        width,
-                        height,
-                        stride,
-                    )
-                    .unwrap()
-                };
-                let context = cairo::Context::new(&cairo_surface).unwrap();
-                context.set_antialias(cairo::Antialias::Best);
-                context.save().unwrap();
+                        context.set_operator(cairo::Operator::Source);
+                        context.set_source_rgb(1.0, 1.0, 1.0);
+                        context.paint().unwrap();
+                        context.save().unwrap();
 
-                context.set_operator(cairo::Operator::Source);
-                context.set_source_rgb(1.0, 1.0, 1.0);
-                context.paint().unwrap();
-                context.save().unwrap();
-
-                context.set_operator(cairo::Operator::Over);
-                render_background_image(
-                    &context,
-                    &viewer.image,
-                    BackgroundMode::Fit,
-                    width,
-                    height,
-                );
-                context.restore().unwrap();
-                context.identity_matrix();
-            });
+                        context.set_operator(cairo::Operator::Over);
+                        render_background_image(
+                            &context,
+                            &viewer.image,
+                            BackgroundMode::Fit,
+                            width,
+                            height,
+                        );
+                        context.restore().unwrap();
+                        context.identity_matrix();
+                    }
+                });
         }
     }
 }
