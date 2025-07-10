@@ -1,7 +1,9 @@
 mod auth;
 mod background_image;
+mod colors;
 mod constants;
 mod easy_surface;
+mod indicator;
 
 use std::env;
 
@@ -35,6 +37,7 @@ use wayland_client::{
 use crate::{
     background_image::{BackgroundMode, load_image, render_background_image},
     easy_surface::EasySurface,
+    indicator::Indicator,
 };
 
 fn main() {
@@ -62,6 +65,13 @@ fn main() {
 
         windows: Vec::new(),
         password: String::new(),
+        indicator: Indicator {
+            radius: 50.0,
+            arc_thickness: 5.0,
+            input_state: indicator::InputState::Idle,
+            auth_state: indicator::AuthState::Idle,
+            is_caps_lock: false,
+        },
     };
 
     for path in env::args_os().skip(1) {
@@ -125,6 +135,7 @@ struct State {
 
     windows: Vec<ImageViewer>,
     password: String,
+    indicator: Indicator,
 }
 
 struct ImageViewer {
@@ -350,7 +361,7 @@ impl KeyboardHandler for State {
 }
 
 impl State {
-    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, time: u32) {
+    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         for viewer in &mut self.windows {
             viewer
                 .indicator_surface
@@ -367,12 +378,15 @@ impl State {
                         .unwrap()
                     };
                     let context = cairo::Context::new(&cairo_surface).unwrap();
-                    context.set_source_rgba(1.0, 1.0, 1.0, 0.0);
+
+                    // Clear
+                    context.save().unwrap();
+                    context.set_source_rgba(0.0, 0.0, 0.0, 0.0);
                     context.set_operator(cairo::Operator::Source);
                     context.paint().unwrap();
-                    context.set_source_rgb(1.0, 1.0, 1.0);
-                    context.rectangle((time as i32 % width) as f64, 200.0, 200.0, 500.0);
-                    context.stroke().unwrap();
+                    context.restore().unwrap();
+
+                    self.indicator.draw(&context, 400.0, 400.0, 1.0);
                 });
 
             viewer
