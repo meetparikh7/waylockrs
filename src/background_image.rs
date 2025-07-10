@@ -1,11 +1,12 @@
+#[allow(dead_code)]
 #[derive(PartialEq)]
 pub enum BackgroundMode {
-    STRETCH,
-    FILL,
-    FIT,
-    CENTER,
-    TILE,
-    SOLID_COLOR,
+    Stretch,
+    Fill,
+    Fit,
+    Center,
+    Tile,
+    SolidColor,
 }
 
 pub fn load_image(path: &str) -> cairo::ImageSurface {
@@ -62,14 +63,14 @@ pub fn render_background_image(
     context.save().unwrap();
 
     match mode {
-        BackgroundMode::STRETCH => {
+        BackgroundMode::Stretch => {
             context.scale(width_ratio, height_ratio);
             context.set_source_surface(&image, 0.0, 0.0).unwrap();
         }
-        BackgroundMode::FILL | BackgroundMode::FIT => {
+        BackgroundMode::Fill | BackgroundMode::Fit => {
             let (scale, offset_x, offset_y) = {
-                if (mode == BackgroundMode::FILL && window_ratio > bg_ratio)
-                    || (mode == BackgroundMode::FIT && window_ratio < bg_ratio)
+                if (mode == BackgroundMode::Fill && window_ratio > bg_ratio)
+                    || (mode == BackgroundMode::Fit && window_ratio < bg_ratio)
                 {
                     let scale = width_ratio;
                     let offset = (buffer_height as f64) / 2.0 / scale - (height as f64) / 2.0;
@@ -85,19 +86,19 @@ pub fn render_background_image(
                 .set_source_surface(&image, offset_x, offset_y)
                 .unwrap();
         }
-        BackgroundMode::CENTER => {
+        BackgroundMode::Center => {
             let offset_x = (buffer_width as f64) / 2.0 - (width as f64) / 2.0;
             let offset_y = (buffer_height as f64) / 2.0 - (height as f64) / 2.0;
             context
                 .set_source_surface(&image, offset_x, offset_y)
                 .unwrap();
         }
-        BackgroundMode::TILE => {
+        BackgroundMode::Tile => {
             let pattern = cairo::SurfacePattern::create(image);
             pattern.set_extend(cairo::Extend::Repeat);
             context.set_source(pattern).unwrap();
         }
-        BackgroundMode::SOLID_COLOR => {}
+        BackgroundMode::SolidColor => {}
     };
     context.paint().unwrap();
     context.restore().unwrap();

@@ -263,7 +263,7 @@ impl State {
                 render_background_image(
                     &context,
                     &viewer.image,
-                    BackgroundMode::FIT,
+                    BackgroundMode::Fit,
                     width,
                     height,
                 );
