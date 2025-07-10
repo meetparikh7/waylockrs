@@ -8,7 +8,7 @@ use std::env;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
-    delegate_shm, delegate_xdg_shell, delegate_xdg_window,
+    delegate_shm, delegate_subcompositor, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -24,6 +24,7 @@ use smithay_client_toolkit::{
         },
     },
     shm::{Shm, ShmHandler},
+    subcompositor::SubcompositorState,
 };
 use wayland_client::{
     Connection, QueueHandle,
@@ -44,11 +45,17 @@ fn main() {
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
+    let compositor_state =
+        CompositorState::bind(&globals, &qh).expect("wl_compositor not available");
+    let subcompositor_state =
+        SubcompositorState::bind(compositor_state.wl_compositor().clone(), &globals, &qh)
+            .expect("wl_subcompositor not available");
+
     let mut state = State {
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
-        compositor_state: CompositorState::bind(&globals, &qh)
-            .expect("wl_compositor not available"),
+        compositor_state,
+        subcompositor_state,
         seat_state: SeatState::new(&globals, &qh),
         shm_state: Shm::bind(&globals, &qh).expect("wl_shm not available"),
         xdg_shell_state: XdgShell::bind(&globals, &qh).expect("xdg shell not available"),
@@ -59,6 +66,12 @@ fn main() {
 
     for path in env::args_os().skip(1) {
         let surface = state.compositor_state.create_surface(&qh);
+        let (indicator_subsurface, indicator_surface) = state
+            .subcompositor_state
+            .create_subsurface(surface.clone(), &qh);
+
+        indicator_subsurface.set_sync();
+        indicator_subsurface.set_position(0, 0);
 
         let window = state.xdg_shell_state.create_window(
             surface.clone(),
@@ -79,7 +92,8 @@ fn main() {
         state.windows.push(ImageViewer {
             window,
             image: load_image(&path.to_string_lossy()),
-            buffer: EasySurface::new(surface, wl_shm::Format::Argb8888),
+            base_surface: EasySurface::new(surface, wl_shm::Format::Argb8888),
+            indicator_surface: EasySurface::new(indicator_surface, wl_shm::Format::Argb8888),
         });
     }
 
@@ -104,6 +118,7 @@ struct State {
     registry_state: RegistryState,
     output_state: OutputState,
     compositor_state: CompositorState,
+    subcompositor_state: SubcompositorState,
     shm_state: Shm,
     seat_state: SeatState,
     xdg_shell_state: XdgShell,
@@ -115,7 +130,8 @@ struct State {
 struct ImageViewer {
     window: Window,
     image: cairo::ImageSurface,
-    buffer: EasySurface,
+    base_surface: EasySurface,
+    indicator_surface: EasySurface,
 }
 
 impl CompositorHandler for State {
@@ -222,7 +238,10 @@ impl WindowHandler for State {
             let height = configure.new_size.1.map(|v| v.get()).unwrap_or(256);
 
             viewer
-                .buffer
+                .base_surface
+                .configure(&self.shm_state, width as i32, height as i32);
+            viewer
+                .indicator_surface
                 .configure(&self.shm_state, width as i32, height as i32);
         }
         self.draw(conn, qh, 0);
@@ -331,10 +350,33 @@ impl KeyboardHandler for State {
 }
 
 impl State {
-    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
+    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, time: u32) {
         for viewer in &mut self.windows {
             viewer
-                .buffer
+                .indicator_surface
+                .render(qh, |_buffer, canvas, width, height, _resized| {
+                    let stride = width * 4;
+                    let cairo_surface = unsafe {
+                        cairo::ImageSurface::create_for_data_unsafe(
+                            canvas.first_mut().unwrap(),
+                            cairo::Format::ARgb32,
+                            width,
+                            height,
+                            stride,
+                        )
+                        .unwrap()
+                    };
+                    let context = cairo::Context::new(&cairo_surface).unwrap();
+                    context.set_source_rgba(1.0, 1.0, 1.0, 0.0);
+                    context.set_operator(cairo::Operator::Source);
+                    context.paint().unwrap();
+                    context.set_source_rgb(1.0, 1.0, 1.0);
+                    context.rectangle((time as i32 % width) as f64, 200.0, 200.0, 500.0);
+                    context.stroke().unwrap();
+                });
+
+            viewer
+                .base_surface
                 .render(qh, |_buffer, canvas, width, height, resized| {
                     if resized {
                         let stride = width * 4;
@@ -375,6 +417,7 @@ impl State {
 }
 
 delegate_compositor!(State);
+delegate_subcompositor!(State);
 delegate_output!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_window!(State);
