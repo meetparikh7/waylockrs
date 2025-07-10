@@ -36,6 +36,11 @@ pub const TEXT: ColorSet = ColorSet {
     wrong: 0x000000FF,
 };
 
+pub const BS_HIGHLIGHT: u32 = 0xDB3300FF;
+pub const KEY_HIGHLIGHT: u32 = 0x33DB00FF;
+pub const CAPS_LOCK_BS_HIGHLIGHT: u32 = 0xDB3300FF;
+pub const CAPS_LOCK_KEY_HIGHLIGHT: u32 = 0x33DB00FF;
+
 pub fn map_to_rgba(color: u32) -> (f64, f64, f64, f64) {
     let bytes: [u8; 4] = color.to_be_bytes();
     (

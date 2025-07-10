@@ -5,7 +5,10 @@ mod constants;
 mod easy_surface;
 mod indicator;
 
-use std::env;
+use std::{
+    env,
+    time::{Duration, Instant},
+};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -67,10 +70,13 @@ fn main() {
         password: String::new(),
         indicator: Indicator {
             radius: 50.0,
-            arc_thickness: 5.0,
+            arc_thickness: 10.0,
             input_state: indicator::InputState::Idle,
             auth_state: indicator::AuthState::Idle,
             is_caps_lock: false,
+            show_caps_lock_indictor: true,
+            last_update: Instant::now(),
+            highlight_start: 0,
         },
     };
 
@@ -332,9 +338,25 @@ impl KeyboardHandler for State {
             let verification = auth::verify(&self.password);
             println!("Auth verify {:?} {:?}", verification, &self.password);
             self.password.clear();
+        } else if event.keysym == keyboard::Keysym::BackSpace {
+            if self.password.len() != 0 {
+                self.password = self.password[0..self.password.len() - 1].to_string();
+            }
+            self.indicator.input_state = if self.password.len() == 0 {
+                indicator::InputState::Clear
+            } else {
+                indicator::InputState::Backspace
+            };
+            self.indicator.last_update = Instant::now();
         } else if let Some(input) = &event.utf8 {
             self.password.push_str(&input);
+            self.indicator.input_state = indicator::InputState::Letter;
+            self.indicator.last_update = Instant::now();
+        } else {
+            self.indicator.input_state = indicator::InputState::Neutral;
+            self.indicator.last_update = Instant::now();
         }
+        self.indicator.highlight_start = rand::random::<u32>() % 2048;
         println!("press {:?} {:?}", event.utf8, event.keysym);
     }
 
@@ -362,6 +384,10 @@ impl KeyboardHandler for State {
 
 impl State {
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
+        if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
+            self.indicator.input_state = indicator::InputState::Idle;
+            self.indicator.auth_state = indicator::AuthState::Idle;
+        }
         for viewer in &mut self.windows {
             viewer
                 .indicator_surface

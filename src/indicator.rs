@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::colors;
 
 // Indicator state: status of authentication attempt
@@ -9,7 +11,6 @@ pub enum AuthState {
 }
 
 // Indicator state: status of password buffer / typing letters
-#[allow(dead_code)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum InputState {
     Idle,      // nothing happening; other states decay to this after time
@@ -25,9 +26,13 @@ pub struct Indicator {
     pub input_state: InputState,
     pub auth_state: AuthState,
     pub is_caps_lock: bool,
+    pub show_caps_lock_indictor: bool,
+    pub last_update: Instant,
+    pub highlight_start: u32,
 }
 
 const PI: f64 = std::f64::consts::PI;
+const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
 
 impl Indicator {
     fn set_color_for_state(&self, context: &cairo::Context, colorset: &colors::ColorSet) {
@@ -38,7 +43,7 @@ impl Indicator {
         } else if self.auth_state == AuthState::Invalid {
             colors::map_to_rgba(colorset.wrong)
         } else {
-            if self.is_caps_lock {
+            if self.is_caps_lock && self.show_caps_lock_indictor {
                 colors::map_to_rgba(colorset.caps_lock)
             } else {
                 colors::map_to_rgba(colorset.input)
@@ -63,6 +68,28 @@ impl Indicator {
         context.arc(xc, yc, arc_radius, 0.0, 2.0 * PI);
         self.set_color_for_state(&context, &colors::RING);
         context.stroke().unwrap();
+
+        if self.input_state == InputState::Letter || self.input_state == InputState::Backspace {
+            let highlight_start = self.highlight_start as f64 * (PI / 1024.0);
+            let highlight_end = highlight_start + TYPE_INDICATOR_RANGE;
+            context.arc(xc, yc, arc_radius, highlight_start, highlight_end);
+            let highlight = if self.input_state == InputState::Letter {
+                if self.is_caps_lock && self.show_caps_lock_indictor {
+                    colors::CAPS_LOCK_KEY_HIGHLIGHT
+                } else {
+                    colors::KEY_HIGHLIGHT
+                }
+            } else {
+                if self.is_caps_lock && self.show_caps_lock_indictor {
+                    colors::CAPS_LOCK_BS_HIGHLIGHT
+                } else {
+                    colors::BS_HIGHLIGHT
+                }
+            };
+            let (r, g, b, a) = colors::map_to_rgba(highlight);
+            context.set_source_rgba(r, g, b, a);
+            context.stroke().unwrap();
+        }
 
         // Draw inner + outer border of the circle
         self.set_color_for_state(&context, &colors::LINE);
