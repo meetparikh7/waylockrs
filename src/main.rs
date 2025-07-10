@@ -1,4 +1,5 @@
 mod auth;
+mod background_image;
 mod constants;
 mod easy_surface;
 
@@ -18,7 +19,7 @@ use smithay_client_toolkit::{
             window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
         },
     },
-    shm::{Shm, ShmHandler, slot::SlotPool},
+    shm::{Shm, ShmHandler},
 };
 use wayland_client::{
     Connection, QueueHandle,
@@ -26,7 +27,10 @@ use wayland_client::{
     protocol::{wl_output, wl_shm, wl_surface},
 };
 
-use crate::easy_surface::EasySurface;
+use crate::{
+    background_image::{BackgroundMode, load_image, render_background_image},
+    easy_surface::EasySurface,
+};
 
 pub fn old_main() {
     match rpassword::prompt_password("Enter password: ") {
@@ -51,33 +55,17 @@ fn main() {
         shm_state: Shm::bind(&globals, &qh).expect("wl_shm not available"),
         xdg_shell_state: XdgShell::bind(&globals, &qh).expect("xdg shell not available"),
 
-        pool: None,
         windows: Vec::new(),
     };
 
-    let mut pool_size = 0;
-
     for path in env::args_os().skip(1) {
-        let image = match image::open(&path) {
-            Ok(i) => i,
-            Err(e) => {
-                println!("Failed to open image {}.", path.to_string_lossy());
-                println!("Error was: {e:?}");
-                return;
-            }
-        };
-
-        // We'll need the image in RGBA for drawing it
-        let image = image.to_rgba8();
-
         let surface = state.compositor_state.create_surface(&qh);
 
-        pool_size += image.width() * image.height() * 4;
-
-        let window =
-            state
-                .xdg_shell_state
-                .create_window(surface, WindowDecorations::ServerDefault, &qh);
+        let window = state.xdg_shell_state.create_window(
+            surface.clone(),
+            WindowDecorations::ServerDefault,
+            &qh,
+        );
         window.set_title("A wayland window");
         // GitHub does not let projects use the `org.github` domain but the `io.github` domain is fine.
         window.set_app_id("io.github.smithay.client-toolkit.ImageViewer");
@@ -89,16 +77,12 @@ fn main() {
         // the correct options.
         window.commit();
 
-        let surface = window.wl_surface().clone();
         state.windows.push(ImageViewer {
             window,
-            image,
+            image: load_image(&path.to_string_lossy()),
             buffer: EasySurface::new(surface, wl_shm::Format::Argb8888),
         });
     }
-
-    let pool = SlotPool::new(pool_size as usize, &state.shm_state).expect("Failed to create pool");
-    state.pool = Some(pool);
 
     if state.windows.is_empty() {
         println!("USAGE: ./image_viewer <PATH> [<PATH>]...");
@@ -124,13 +108,12 @@ struct State {
     shm_state: Shm,
     xdg_shell_state: XdgShell,
 
-    pool: Option<SlotPool>,
     windows: Vec<ImageViewer>,
 }
 
 struct ImageViewer {
     window: Window,
-    image: image::RgbaImage,
+    image: cairo::ImageSurface,
     buffer: EasySurface,
 }
 
@@ -252,28 +235,40 @@ impl ShmHandler for State {
 }
 
 impl State {
-    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, time: u32) {
+    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         for viewer in &mut self.windows {
             viewer.buffer.render(qh, |_buffer, canvas, width, height| {
-                let image = image::imageops::resize(
+                let stride = width * 4;
+
+                let cairo_surface = unsafe {
+                    cairo::ImageSurface::create_for_data_unsafe(
+                        canvas.first_mut().unwrap(),
+                        cairo::Format::ARgb32,
+                        width,
+                        height,
+                        stride,
+                    )
+                    .unwrap()
+                };
+                let context = cairo::Context::new(&cairo_surface).unwrap();
+                context.set_antialias(cairo::Antialias::Best);
+                context.save().unwrap();
+
+                context.set_operator(cairo::Operator::Source);
+                context.set_source_rgb(1.0, 1.0, 1.0);
+                context.paint().unwrap();
+                context.save().unwrap();
+
+                context.set_operator(cairo::Operator::Over);
+                render_background_image(
+                    &context,
                     &viewer.image,
-                    width as u32,
-                    height as u32,
-                    image::imageops::FilterType::Nearest,
+                    BackgroundMode::FIT,
+                    width,
+                    height,
                 );
-
-                let image = image::imageops::huerotate(&image, (time % 360) as i32);
-
-                for (pixel, argb) in image.pixels().zip(canvas.chunks_exact_mut(4)) {
-                    // We do this in an horribly inefficient manner, for the sake of simplicity.
-                    // We'll send pixels to the server in ARGB8888 format (this is one of the only
-                    // formats that are guaranteed to be supported), but image provides it in
-                    // big-endian RGBA8888, so we need to do the conversion.
-                    argb[3] = pixel.0[3];
-                    argb[2] = pixel.0[0];
-                    argb[1] = pixel.0[1];
-                    argb[0] = pixel.0[2];
-                }
+                context.restore().unwrap();
+                context.identity_matrix();
             });
         }
     }
