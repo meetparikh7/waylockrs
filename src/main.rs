@@ -418,7 +418,7 @@ impl State {
                     context.paint().unwrap();
                     context.restore().unwrap();
 
-                    self.indicator.draw(&context, 400.0, 400.0, 1.0);
+                    self.indicator.draw(&context, width, height, 1.0);
                     self.clock.draw(&context, width, height, 1.0);
                 });
 

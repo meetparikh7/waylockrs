@@ -32,9 +32,6 @@ pub struct Indicator {
     pub highlight_start: u32,
 }
 
-const PI: f64 = std::f64::consts::PI;
-const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
-
 fn configure_font_drawing(context: &cairo::Context, font_size: f64) {
     let mut font_options = context.font_options().unwrap();
     font_options.set_hint_style(cairo::HintStyle::Full);
@@ -79,9 +76,14 @@ impl Indicator {
         }
     }
 
-    pub fn draw(&self, context: &cairo::Context, xc: f64, yc: f64, scale: f64) {
+    pub fn draw(&self, context: &cairo::Context, width: i32, height: i32, scale: f64) {
+        const PI: f64 = std::f64::consts::PI;
+        const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
+
         let arc_thickness = self.arc_thickness * scale;
         let arc_radius = self.radius * scale;
+        let xc = (width as f64) * scale / 2.0;
+        let yc = (height as f64) * scale * 0.5 + arc_radius * 3.0;
 
         // fill inner circle
         context.set_line_width(0.0);
