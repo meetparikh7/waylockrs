@@ -3,7 +3,7 @@ mod background_image;
 mod colors;
 mod constants;
 mod easy_surface;
-mod indicator;
+mod overlay;
 
 use std::{
     env,
@@ -40,7 +40,7 @@ use wayland_client::{
 use crate::{
     background_image::{BackgroundMode, load_image, render_background_image},
     easy_surface::EasySurface,
-    indicator::Indicator,
+    overlay::Indicator,
 };
 
 fn main() {
@@ -71,8 +71,8 @@ fn main() {
         indicator: Indicator {
             radius: 50.0,
             arc_thickness: 10.0,
-            input_state: indicator::InputState::Idle,
-            auth_state: indicator::AuthState::Idle,
+            input_state: overlay::InputState::Idle,
+            auth_state: overlay::AuthState::Idle,
             is_caps_lock: false,
             show_caps_lock_indictor: true,
             show_caps_lock_text: true,
@@ -344,17 +344,17 @@ impl KeyboardHandler for State {
                 self.password = self.password[0..self.password.len() - 1].to_string();
             }
             self.indicator.input_state = if self.password.len() == 0 {
-                indicator::InputState::Clear
+                overlay::InputState::Clear
             } else {
-                indicator::InputState::Backspace
+                overlay::InputState::Backspace
             };
             self.indicator.last_update = Instant::now();
         } else if let Some(input) = &event.utf8 {
             self.password.push_str(&input);
-            self.indicator.input_state = indicator::InputState::Letter;
+            self.indicator.input_state = overlay::InputState::Letter;
             self.indicator.last_update = Instant::now();
         } else {
-            self.indicator.input_state = indicator::InputState::Neutral;
+            self.indicator.input_state = overlay::InputState::Neutral;
             self.indicator.last_update = Instant::now();
         }
         self.indicator.highlight_start = rand::random::<u32>() % 2048;
@@ -387,8 +387,8 @@ impl KeyboardHandler for State {
 impl State {
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
-            self.indicator.input_state = indicator::InputState::Idle;
-            self.indicator.auth_state = indicator::AuthState::Idle;
+            self.indicator.input_state = overlay::InputState::Idle;
+            self.indicator.auth_state = overlay::AuthState::Idle;
         }
         for viewer in &mut self.windows {
             viewer
@@ -415,6 +415,7 @@ impl State {
                     context.restore().unwrap();
 
                     self.indicator.draw(&context, 400.0, 400.0, 1.0);
+                    overlay::draw_clock(&context, width, height, 1.0);
                 });
 
             viewer
