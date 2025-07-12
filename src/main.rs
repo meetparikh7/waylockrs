@@ -75,6 +75,7 @@ fn main() {
             auth_state: indicator::AuthState::Idle,
             is_caps_lock: false,
             show_caps_lock_indictor: true,
+            show_caps_lock_text: true,
             last_update: Instant::now(),
             highlight_start: 0,
         },
@@ -376,9 +377,10 @@ impl KeyboardHandler for State {
         _qh: &QueueHandle<Self>,
         _keyboard: &wl_keyboard::WlKeyboard,
         _serial: u32,
-        _modifiers: keyboard::Modifiers,
+        modifiers: keyboard::Modifiers,
         _layout: u32,
     ) {
+        self.indicator.is_caps_lock = modifiers.caps_lock;
     }
 }
 
