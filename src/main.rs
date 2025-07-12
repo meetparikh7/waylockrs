@@ -40,7 +40,7 @@ use wayland_client::{
 use crate::{
     background_image::{BackgroundMode, load_image, render_background_image},
     easy_surface::EasySurface,
-    overlay::Indicator,
+    overlay::{Clock, Indicator},
 };
 
 fn main() {
@@ -78,6 +78,9 @@ fn main() {
             show_caps_lock_text: true,
             last_update: Instant::now(),
             highlight_start: 0,
+        },
+        clock: Clock {
+            display_seconds: true,
         },
     };
 
@@ -143,6 +146,7 @@ struct State {
     windows: Vec<ImageViewer>,
     password: String,
     indicator: Indicator,
+    clock: Clock,
 }
 
 struct ImageViewer {
@@ -415,7 +419,7 @@ impl State {
                     context.restore().unwrap();
 
                     self.indicator.draw(&context, 400.0, 400.0, 1.0);
-                    overlay::draw_clock(&context, width, height, 1.0);
+                    self.clock.draw(&context, width, height, 1.0);
                 });
 
             viewer

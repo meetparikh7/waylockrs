@@ -141,29 +141,48 @@ impl Indicator {
     }
 }
 
-pub fn draw_clock(context: &cairo::Context, width: i32, height: i32, scale: f64) {
-    use time::OffsetDateTime;
-    use time::format_description;
+pub struct Clock {
+    pub display_seconds: bool,
+}
 
-    let xc = (width as f64) * scale / 2.0;
-    let yc = (height as f64) * scale / 2.0;
+impl Clock {
+    pub fn draw(&self, context: &cairo::Context, width: i32, height: i32, scale: f64) {
+        use time::OffsetDateTime;
+        use time::format_description;
 
-    let format = format_description::parse("[hour]:[minute]:[second]").unwrap();
-    let text = match OffsetDateTime::now_local() {
-        Ok(dt) => dt.format(&format).unwrap(),
-        _ => "Unknown time".to_string(),
-    };
+        let xc = (width as f64) * scale / 2.0;
+        let yc = (height as f64) * scale / 2.0;
 
-    configure_font_drawing(context, 70.0);
-    let (r, g, b, a) = colors::map_to_rgba(colors::CLOCK_COLOR);
-    context.set_source_rgba(r, g, b, a);
+        let format = if self.display_seconds {
+            format_description::parse_borrowed::<2>("[hour]:[minute]:[second]")
+        } else {
+            format_description::parse_borrowed::<2>("[hour]:[minute]")
+        }
+        .unwrap();
+        let text = match OffsetDateTime::now_local() {
+            Ok(dt) => dt.format(&format).unwrap(),
+            _ => "Unknown time".to_string(),
+        };
 
-    let extents = context.text_extents(&text).unwrap();
-    let font_extents = context.font_extents().unwrap();
-    let x = extents.width() / 2.0 + extents.x_bearing();
-    let y = font_extents.height() / 2.0 - font_extents.descent();
-    context.move_to(xc - x, yc + y);
-    context.show_text(&text).unwrap();
-    context.close_path();
-    context.new_sub_path();
+        configure_font_drawing(context, 75.0);
+
+        let extents = context.text_extents(&text).unwrap();
+        let font_extents = context.font_extents().unwrap();
+        let x = extents.x_advance() / 2.0;
+        let y = font_extents.height() / 2.0 - font_extents.descent();
+        context.move_to(xc - x, yc + y);
+        context.text_path(&text);
+
+        let (r, g, b, a) = colors::map_to_rgba(colors::CLOCK_FILL_COLOR);
+        context.set_source_rgba(r, g, b, a);
+        context.fill_preserve().unwrap();
+
+        let (r, g, b, a) = colors::map_to_rgba(colors::CLOCK_OUTLINE_COLOR);
+        context.set_source_rgba(r, g, b, a);
+        context.set_line_width(2.0);
+        context.stroke().unwrap();
+
+        context.close_path();
+        context.new_sub_path();
+    }
 }
