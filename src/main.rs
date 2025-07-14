@@ -6,7 +6,10 @@ mod constants;
 mod easy_surface;
 mod overlay;
 
-use crate::{auth::create_and_run_auth_loop, cairo_extras::CairoExtras};
+use crate::{
+    auth::{PasswordBuffer, create_and_run_auth_loop},
+    cairo_extras::CairoExtras,
+};
 use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::{
@@ -102,7 +105,7 @@ fn main() {
         config: config.clone(),
         windows: Vec::new(),
         keyboard: None,
-        password: String::new(),
+        password: PasswordBuffer::new(),
         authenticated: false,
         auth_req_send,
         indicator: Indicator {
@@ -187,9 +190,9 @@ struct State {
     config: Config,
     windows: Vec<ImageViewer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
-    password: String,
+    password: PasswordBuffer,
     authenticated: bool,
-    auth_req_send: channel::Sender<String>,
+    auth_req_send: channel::Sender<PasswordBuffer>,
     indicator: Indicator,
     clock: Clock,
 }
@@ -344,7 +347,6 @@ impl SeatHandler for State {
                         None,
                         self.loop_handle.clone(),
                         Box::new(|state, _wl_kbd, event| {
-                            println!("repeat {:?} {:?}", event.utf8, event.keysym);
                             state.handle_key_press_or_repeat(event);
                         }),
                     )
@@ -397,7 +399,6 @@ impl KeyboardHandler for State {
         _serial: u32,
         event: keyboard::KeyEvent,
     ) {
-        println!("press {:?} {:?}", event.utf8, event.keysym);
         self.handle_key_press_or_repeat(event);
     }
 
@@ -427,20 +428,17 @@ impl KeyboardHandler for State {
 impl State {
     pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
         if event.keysym == keyboard::Keysym::Return {
-            let password = std::mem::take(&mut self.password);
-            self.auth_req_send.send(password).unwrap();
+            self.auth_req_send.send(self.password.take()).unwrap();
         } else if event.keysym == keyboard::Keysym::BackSpace {
-            if self.password.len() != 0 {
-                self.password = self.password[0..self.password.len() - 1].to_string();
-            }
-            self.indicator.input_state = if self.password.len() == 0 {
+            self.password.backspace();
+            self.indicator.input_state = if self.password.unsecure().len() == 0 {
                 overlay::InputState::Clear
             } else {
                 overlay::InputState::Backspace
             };
             self.indicator.last_update = Instant::now();
-        } else if let Some(input) = &event.utf8 {
-            self.password.push_str(&input);
+        } else if let Some(input) = event.utf8 {
+            self.password.append(input);
             self.indicator.input_state = overlay::InputState::Letter;
             self.indicator.last_update = Instant::now();
         } else {
