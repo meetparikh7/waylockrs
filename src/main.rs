@@ -11,8 +11,11 @@ use crate::{
 };
 use std::{
     collections::HashMap,
+    path::Path,
     time::{Duration, Instant},
 };
+
+use log::{error, info};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -53,7 +56,22 @@ use crate::{
 fn main() {
     env_logger::init();
 
-    let config_str = std::fs::read_to_string("config.toml").unwrap();
+    let xdg_dirs = xdg::BaseDirectories::new();
+    let config_str = match xdg_dirs.get_config_file(Path::new("funlock/config.toml")) {
+        Some(file) => {
+            if file.exists() {
+                std::fs::read_to_string(file).unwrap()
+            } else {
+                info!("Config file {:?} does not exist. Using defaults", file);
+                "".to_string()
+            }
+        }
+        None => {
+            error!("Unable to retrieve XDG config directory. Using empty config.");
+            "".to_string()
+        }
+    };
+
     let config = Config::parse(&config_str);
     if config.show_help {
         println!("Usage: funlock --background-image path/to/image");
