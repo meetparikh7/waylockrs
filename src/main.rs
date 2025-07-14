@@ -93,6 +93,8 @@ fn main() {
                     let lock = state.lock.take();
                     lock.unwrap().unlock();
                     state.lock_surfaces.clear();
+                } else {
+                    state.indicator.auth_state = overlay::AuthState::Invalid;
                 }
             }
             channel::Event::Closed => {
@@ -445,6 +447,8 @@ impl State {
     pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
         if event.keysym == keyboard::Keysym::Return {
             self.auth_req_send.send(self.password.take()).unwrap();
+            self.indicator.auth_state = overlay::AuthState::Validating;
+            self.indicator.input_state = overlay::InputState::Idle;
         } else if event.keysym == keyboard::Keysym::BackSpace {
             self.password.backspace();
             self.indicator.input_state = if self.password.unsecure().len() == 0 {
@@ -452,22 +456,19 @@ impl State {
             } else {
                 overlay::InputState::Backspace
             };
-            self.indicator.last_update = Instant::now();
         } else if let Some(input) = event.utf8 {
             self.password.append(input);
             self.indicator.input_state = overlay::InputState::Letter;
-            self.indicator.last_update = Instant::now();
         } else {
             self.indicator.input_state = overlay::InputState::Neutral;
-            self.indicator.last_update = Instant::now();
         }
         self.indicator.highlight_start = rand::random::<u32>() % 2048;
+        self.indicator.last_update = Instant::now();
     }
 
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
             self.indicator.input_state = overlay::InputState::Idle;
-            self.indicator.auth_state = overlay::AuthState::Idle;
         }
         for lock_surface in &mut self.lock_surfaces.values_mut() {
             lock_surface.indicator_surface.render(

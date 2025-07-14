@@ -17,6 +17,7 @@ thickness = 10.0
 show_caps_lock_indicator = true
 show_caps_lock_text = true
 show_text = true
+show_even_if_idle = false
 
 [indicator.colors.inside]
 input = 0x000000C0

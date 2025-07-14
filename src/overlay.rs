@@ -82,7 +82,10 @@ impl Indicator {
     }
 
     pub fn draw(&self, context: &cairo::Context, width: i32, height: i32, scale: f64) {
-        if self.auth_state == AuthState::Idle && self.input_state == InputState::Idle {
+        if !self.config.show_even_if_idle
+            && self.auth_state == AuthState::Idle
+            && self.input_state == InputState::Idle
+        {
             return;
         }
 

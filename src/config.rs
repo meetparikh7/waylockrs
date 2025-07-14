@@ -85,6 +85,7 @@ pub struct Indicator {
     pub show_caps_lock_indicator: bool,
     pub show_caps_lock_text: bool,
     pub show_text: bool,
+    pub show_even_if_idle: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
