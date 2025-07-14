@@ -36,8 +36,10 @@ pub struct ColorSet {
 #[derive(Clone, Debug, Deserialize)]
 pub struct Clock {
     pub show_seconds: bool,
+    pub font_size: f64,
     pub text_color: Color,
     pub outline_color: Color,
+    pub outline_width: f64,
 }
 
 #[derive(Clone, Debug, Deserialize)]

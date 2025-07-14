@@ -3,22 +3,30 @@ use std::time::Instant;
 use crate::CairoExtras;
 use crate::config;
 
-// Indicator state: status of authentication attempt
+/// Indicator state: status of authentication attempt
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum AuthState {
-    Idle,       // nothing happening
-    Validating, // currently validating password
-    Invalid,    // displaying message: password was wrong
+    /// nothing happening
+    Idle,
+    /// currently validating password
+    Validating,
+    /// displaying message: password was wrong
+    Invalid,
 }
 
-// Indicator state: status of password buffer / typing letters
+/// Indicator state: status of password buffer / typing letters
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum InputState {
-    Idle,      // nothing happening; other states decay to this after time
-    Clear,     // displaying message: password buffer was cleared
-    Letter,    // pressed a key that input a letter
-    Backspace, // pressed backspace and removed a letter
-    Neutral,   // pressed a key (like Ctrl) that did nothing
+    /// nothing happening; other states decay to this after time
+    Idle,
+    /// displaying message: password buffer was cleared
+    Clear,
+    /// pressed a key that input a letter
+    Letter,
+    /// pressed backspace and removed a letter
+    Backspace,
+    /// pressed a key (like Ctrl) that did nothing
+    Neutral,
 }
 
 pub struct Indicator {
@@ -74,6 +82,10 @@ impl Indicator {
     }
 
     pub fn draw(&self, context: &cairo::Context, width: i32, height: i32, scale: f64) {
+        if self.auth_state == AuthState::Idle && self.input_state == InputState::Idle {
+            return;
+        }
+
         const PI: f64 = std::f64::consts::PI;
         const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
 
@@ -164,7 +176,7 @@ impl Clock {
             _ => "Unknown time".to_string(),
         };
 
-        configure_font_drawing(context, 75.0);
+        configure_font_drawing(context, self.config.font_size);
 
         let extents = context.text_extents(&text).unwrap();
         let font_extents = context.font_extents().unwrap();
@@ -177,7 +189,7 @@ impl Clock {
         context.fill_preserve().unwrap();
 
         context.set_source_color(&self.config.outline_color);
-        context.set_line_width(2.0);
+        context.set_line_width(self.config.outline_width);
         context.stroke().unwrap();
 
         context.close_path();
