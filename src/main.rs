@@ -6,7 +6,7 @@ mod constants;
 mod easy_surface;
 mod overlay;
 
-use crate::cairo_extras::CairoExtras;
+use crate::{auth::create_and_run_auth_loop, cairo_extras::CairoExtras};
 use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::{
@@ -15,6 +15,7 @@ use smithay_client_toolkit::{
     delegate_shm, delegate_subcompositor, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
     reexports::{
+        calloop::channel,
         calloop::{EventLoop, LoopHandle},
         calloop_wayland_source::WaylandSource,
     },
@@ -72,6 +73,22 @@ fn main() {
         .insert(loop_handle)
         .expect("Failed to insert loop_handle");
 
+    let (auth_req_send, auth_res_recv) = create_and_run_auth_loop();
+
+    event_loop
+        .handle()
+        .insert_source(auth_res_recv, |evt, _metadata, state| match evt {
+            channel::Event::Msg(status) => {
+                state.authenticated = state.authenticated || status;
+            }
+            channel::Event::Closed => {
+                if !state.authenticated {
+                    panic!("Auth loop closed early!")
+                }
+            }
+        })
+        .unwrap();
+
     let mut state = State {
         loop_handle: event_loop.handle(),
         registry_state: RegistryState::new(&globals),
@@ -86,6 +103,8 @@ fn main() {
         windows: Vec::new(),
         keyboard: None,
         password: String::new(),
+        authenticated: false,
+        auth_req_send,
         indicator: Indicator {
             config: config.indicator.clone(),
             input_state: overlay::InputState::Idle,
@@ -145,6 +164,9 @@ fn main() {
             .dispatch(None, &mut state)
             .expect("Failed to run");
 
+        if state.authenticated {
+            state.windows.clear();
+        }
         if state.windows.is_empty() {
             println!("exiting example");
             break;
@@ -166,6 +188,8 @@ struct State {
     windows: Vec<ImageViewer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     password: String,
+    authenticated: bool,
+    auth_req_send: channel::Sender<String>,
     indicator: Indicator,
     clock: Clock,
 }
@@ -403,9 +427,8 @@ impl KeyboardHandler for State {
 impl State {
     pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
         if event.keysym == keyboard::Keysym::Return {
-            let verification = auth::verify(&self.password);
-            println!("Auth verify {:?} {:?}", verification, &self.password);
-            self.password.clear();
+            let password = std::mem::take(&mut self.password);
+            self.auth_req_send.send(password).unwrap();
         } else if event.keysym == keyboard::Keysym::BackSpace {
             if self.password.len() != 0 {
                 self.password = self.password[0..self.password.len() - 1].to_string();
