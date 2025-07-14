@@ -10,16 +10,18 @@ use crate::{
     auth::{PasswordBuffer, create_and_run_auth_loop},
     cairo_extras::CairoExtras,
 };
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
-    delegate_shm, delegate_subcompositor, delegate_xdg_shell, delegate_xdg_window,
+    delegate_session_lock, delegate_shm, delegate_subcompositor,
     output::{OutputHandler, OutputState},
     reexports::{
-        calloop::channel,
-        calloop::{EventLoop, LoopHandle},
+        calloop::{EventLoop, LoopHandle, channel},
         calloop_wayland_source::WaylandSource,
     },
     registry::{ProvidesRegistryState, RegistryState},
@@ -28,18 +30,16 @@ use smithay_client_toolkit::{
         self, SeatHandler, SeatState,
         keyboard::{self, KeyboardHandler},
     },
-    shell::{
-        WaylandSurface,
-        xdg::{
-            XdgShell,
-            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
-        },
+    session_lock::{
+        SessionLock, SessionLockHandler, SessionLockState, SessionLockSurface,
+        SessionLockSurfaceConfigure,
     },
     shm::{Shm, ShmHandler},
     subcompositor::SubcompositorState,
 };
 use wayland_client::{
-    Connection, QueueHandle,
+    Connection, Proxy, QueueHandle,
+    backend::ObjectId,
     globals::registry_queue_init,
     protocol::{wl_keyboard, wl_output, wl_seat, wl_shm, wl_surface},
 };
@@ -82,7 +82,11 @@ fn main() {
         .handle()
         .insert_source(auth_res_recv, |evt, _metadata, state| match evt {
             channel::Event::Msg(status) => {
-                state.authenticated = state.authenticated || status;
+                if status && state.lock.is_some() {
+                    let lock = state.lock.take();
+                    lock.unwrap().unlock();
+                    state.lock_surfaces.clear();
+                }
             }
             channel::Event::Closed => {
                 if !state.authenticated {
@@ -92,6 +96,11 @@ fn main() {
         })
         .unwrap();
 
+    let background_image = match &config.background_image {
+        Some(path) => Some(load_image(&path)),
+        None => None,
+    };
+
     let mut state = State {
         loop_handle: event_loop.handle(),
         registry_state: RegistryState::new(&globals),
@@ -100,10 +109,13 @@ fn main() {
         subcompositor_state,
         seat_state: SeatState::new(&globals, &qh),
         shm_state: Shm::bind(&globals, &qh).expect("wl_shm not available"),
-        xdg_shell_state: XdgShell::bind(&globals, &qh).expect("xdg shell not available"),
+        session_lock_state: SessionLockState::new(&globals, &qh),
 
         config: config.clone(),
-        windows: Vec::new(),
+        background_image,
+        lock: None,
+        lock_surfaces: HashMap::new(),
+        output_to_lock_surfaces: HashMap::new(),
         keyboard: None,
         password: PasswordBuffer::new(),
         authenticated: false,
@@ -121,59 +133,15 @@ fn main() {
         },
     };
 
-    {
-        let path = state.config.background_image.clone();
-        let surface = state.compositor_state.create_surface(&qh);
-        let (indicator_subsurface, indicator_surface) = state
-            .subcompositor_state
-            .create_subsurface(surface.clone(), &qh);
+    state.lock = Some(state.session_lock_state.lock(&qh).expect("Could not lock"));
 
-        indicator_subsurface.set_sync();
-        indicator_subsurface.set_position(0, 0);
-
-        let window = state.xdg_shell_state.create_window(
-            surface.clone(),
-            WindowDecorations::ServerDefault,
-            &qh,
-        );
-        window.set_title("A wayland window");
-        // GitHub does not let projects use the `org.github` domain but the `io.github` domain is fine.
-        window.set_app_id("io.github.smithay.client-toolkit.ImageViewer");
-
-        // In order for the window to be mapped, we need to perform an initial commit with no attached buffer.
-        // For more info, see WaylandSurface::commit
-        //
-        // The compositor will respond with an initial configure that we can then use to present to the window with
-        // the correct options.
-        window.commit();
-
-        state.windows.push(ImageViewer {
-            window,
-            image: load_image(&path.unwrap()),
-            base_surface: EasySurface::new(surface, wl_shm::Format::Argb8888),
-            indicator_surface: EasySurface::new(indicator_surface, wl_shm::Format::Argb8888),
-        });
-    }
-
-    if state.windows.is_empty() {
-        println!("USAGE: ./image_viewer <PATH> [<PATH>]...");
-        return;
-    }
-
-    // We don't draw immediately, the configure will notify us when to first draw.
-
-    loop {
+    while !state.authenticated {
+        if state.lock.is_none() {
+            state.authenticated = true;
+        }
         event_loop
             .dispatch(None, &mut state)
             .expect("Failed to run");
-
-        if state.authenticated {
-            state.windows.clear();
-        }
-        if state.windows.is_empty() {
-            println!("exiting example");
-            break;
-        }
     }
 }
 
@@ -185,11 +153,14 @@ struct State {
     subcompositor_state: SubcompositorState,
     shm_state: Shm,
     seat_state: SeatState,
-    xdg_shell_state: XdgShell,
+    session_lock_state: SessionLockState,
 
     config: Config,
-    windows: Vec<ImageViewer>,
+    background_image: Option<cairo::ImageSurface>,
+    lock_surfaces: HashMap<ObjectId, LockSurface>,
+    output_to_lock_surfaces: HashMap<ObjectId, ObjectId>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    lock: Option<SessionLock>,
     password: PasswordBuffer,
     authenticated: bool,
     auth_req_send: channel::Sender<PasswordBuffer>,
@@ -197,9 +168,8 @@ struct State {
     clock: Clock,
 }
 
-struct ImageViewer {
-    window: Window,
-    image: cairo::ImageSurface,
+struct LockSurface {
+    _lock_surface: SessionLockSurface,
     base_surface: EasySurface,
     indicator_surface: EasySurface,
 }
@@ -264,9 +234,10 @@ impl OutputHandler for State {
     fn new_output(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        qh: &QueueHandle<Self>,
+        output: wl_output::WlOutput,
     ) {
+        self.create_lock_surface(qh, output);
     }
 
     fn update_output(
@@ -281,40 +252,11 @@ impl OutputHandler for State {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _output: wl_output::WlOutput,
+        output: wl_output::WlOutput,
     ) {
-    }
-}
-
-impl WindowHandler for State {
-    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, window: &Window) {
-        self.windows.retain(|v| v.window != *window);
-    }
-
-    fn configure(
-        &mut self,
-        conn: &Connection,
-        qh: &QueueHandle<Self>,
-        window: &Window,
-        configure: WindowConfigure,
-        _serial: u32,
-    ) {
-        for viewer in &mut self.windows {
-            if viewer.window != *window {
-                continue;
-            }
-
-            let width = configure.new_size.0.map(|v| v.get()).unwrap_or(256);
-            let height = configure.new_size.1.map(|v| v.get()).unwrap_or(256);
-
-            viewer
-                .base_surface
-                .configure(&self.shm_state, width as i32, height as i32);
-            viewer
-                .indicator_surface
-                .configure(&self.shm_state, width as i32, height as i32);
+        if let Some(surface_id) = self.output_to_lock_surfaces.remove(&output.id()) {
+            self.lock_surfaces.remove(&surface_id);
         }
-        self.draw(conn, qh, 0);
     }
 }
 
@@ -425,7 +367,74 @@ impl KeyboardHandler for State {
     }
 }
 
+impl SessionLockHandler for State {
+    fn locked(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _session_lock: SessionLock) {
+        for output in self.output_state.outputs() {
+            self.create_lock_surface(qh, output);
+        }
+    }
+
+    fn finished(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _session_lock: SessionLock,
+    ) {
+        panic!("Failed to lock session. Is another lock screen running?");
+    }
+
+    fn configure(
+        &mut self,
+        conn: &Connection,
+        qh: &QueueHandle<Self>,
+        surface: SessionLockSurface,
+        configure: SessionLockSurfaceConfigure,
+        _serial: u32,
+    ) {
+        let surface_id = surface.wl_surface().id();
+        self.lock_surfaces.entry(surface_id).and_modify(|e| {
+            let (width, height) = configure.new_size;
+            let (width, height) = (width as i32, height as i32);
+            e.base_surface.configure(&self.shm_state, width, height);
+            e.indicator_surface
+                .configure(&self.shm_state, width, height);
+        });
+        self.draw(conn, qh, 0);
+    }
+}
+
 impl State {
+    pub fn create_lock_surface(&mut self, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
+        let lock = match self.lock.as_ref() {
+            Some(lock) => lock,
+            None => return,
+        };
+
+        if self.output_to_lock_surfaces.contains_key(&output.id()) {
+            return;
+        }
+
+        let surface = self.compositor_state.create_surface(&qh);
+        let lock_surface = lock.create_lock_surface(surface.clone(), &output, &qh);
+        let surface_id = lock_surface.wl_surface().id();
+        let (indicator_subsurface, indicator_surface) = self
+            .subcompositor_state
+            .create_subsurface(lock_surface.wl_surface().clone(), &qh);
+
+        indicator_subsurface.set_sync();
+        indicator_subsurface.set_position(0, 0);
+
+        self.lock_surfaces.insert(
+            surface_id.clone(),
+            LockSurface {
+                _lock_surface: lock_surface,
+                base_surface: EasySurface::new(surface, wl_shm::Format::Argb8888),
+                indicator_surface: EasySurface::new(indicator_surface, wl_shm::Format::Argb8888),
+            },
+        );
+        self.output_to_lock_surfaces.insert(output.id(), surface_id);
+    }
+
     pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
         if event.keysym == keyboard::Keysym::Return {
             self.auth_req_send.send(self.password.take()).unwrap();
@@ -453,10 +462,10 @@ impl State {
             self.indicator.input_state = overlay::InputState::Idle;
             self.indicator.auth_state = overlay::AuthState::Idle;
         }
-        for viewer in &mut self.windows {
-            viewer
-                .indicator_surface
-                .render(qh, |_buffer, canvas, width, height, _resized| {
+        for lock_surface in &mut self.lock_surfaces.values_mut() {
+            lock_surface.indicator_surface.render(
+                qh,
+                |_buffer, canvas, width, height, _resized| {
                     let stride = width * 4;
                     let cairo_surface = unsafe {
                         cairo::ImageSurface::create_for_data_unsafe(
@@ -483,14 +492,14 @@ impl State {
                     if self.config.show_clock {
                         self.clock.draw(&context, width, height, 1.0);
                     }
-                });
+                },
+            );
 
-            viewer
+            lock_surface
                 .base_surface
                 .render(qh, |_buffer, canvas, width, height, resized| {
                     if resized {
                         let stride = width * 4;
-                        println!("Resized {resized}");
                         let cairo_surface = unsafe {
                             cairo::ImageSurface::create_for_data_unsafe(
                                 canvas.first_mut().unwrap(),
@@ -511,13 +520,15 @@ impl State {
                         context.save().unwrap();
 
                         context.set_operator(cairo::Operator::Over);
-                        render_background_image(
-                            &context,
-                            &viewer.image,
-                            BackgroundMode::Fit,
-                            width,
-                            height,
-                        );
+                        if let Some(image) = self.background_image.as_ref() {
+                            render_background_image(
+                                &context,
+                                &image,
+                                BackgroundMode::Fit,
+                                width,
+                                height,
+                            );
+                        }
                         context.restore().unwrap();
                         context.identity_matrix();
                     }
@@ -529,9 +540,8 @@ impl State {
 delegate_compositor!(State);
 delegate_subcompositor!(State);
 delegate_output!(State);
-delegate_xdg_shell!(State);
-delegate_xdg_window!(State);
 delegate_shm!(State);
+delegate_session_lock!(State);
 
 delegate_seat!(State);
 delegate_keyboard!(State);
