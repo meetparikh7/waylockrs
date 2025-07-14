@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use crate::CairoExtras;
 use crate::config;
+use crate::keyboard_state::KeyboardState;
 
 /// Indicator state: status of authentication attempt
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -81,13 +82,28 @@ impl Indicator {
         }
     }
 
-    pub fn draw(&self, context: &cairo::Context, width: i32, height: i32, scale: f64) {
+    pub fn draw(
+        &mut self,
+        context: &cairo::Context,
+        width: i32,
+        height: i32,
+        scale: f64,
+        keyboard: &KeyboardState,
+    ) {
         if !self.config.show_even_if_idle
             && self.auth_state == AuthState::Idle
             && self.input_state == InputState::Idle
         {
             return;
         }
+
+        self.is_caps_lock = keyboard.is_caps_lock;
+
+        let show_layout = if !self.config.hide_keyboard_layout && keyboard.get_num_layouts() > 1 {
+            true
+        } else {
+            false
+        };
 
         const PI: f64 = std::f64::consts::PI;
         const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
@@ -120,6 +136,32 @@ impl Indicator {
             let x = extents.width() / 2.0 + extents.x_bearing();
             let y = font_extents.height() / 2.0 - font_extents.descent();
             context.move_to(xc - x, yc + y);
+            context.show_text(text).unwrap();
+            context.close_path();
+            context.new_sub_path();
+        }
+
+        if show_layout {
+            configure_font_drawing(context, arc_radius / 3.0);
+            let text = keyboard.get_active_layout();
+            let extents = context.text_extents(text).unwrap();
+            let font_extents = context.font_extents().unwrap();
+            let box_padding = 4.0 * scale;
+            let yc = yc + arc_radius + arc_thickness + box_padding;
+            let (x_off, y_off) = (extents.x_advance() / 2.0, font_extents.height() / 2.0);
+            self.set_color_for_state(context, &self.config.colors.inside);
+            context.rectangle(
+                xc - x_off - box_padding,
+                yc,
+                x_off * 2.0 + box_padding * 2.0,
+                font_extents.height() + font_extents.descent(),
+            );
+            context.fill_preserve().unwrap();
+            context.set_line_width(2.0 * scale);
+            self.set_color_for_state(&context, &self.config.colors.line);
+            context.stroke().unwrap();
+            self.set_color_for_state(context, &self.config.colors.text);
+            context.move_to(xc - x_off, yc + box_padding * 2.0 + y_off);
             context.show_text(text).unwrap();
             context.close_path();
             context.new_sub_path();

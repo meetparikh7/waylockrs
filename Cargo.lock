@@ -530,6 +530,7 @@ dependencies = [
  "users",
  "wayland-client",
  "xdg",
+ "xkbcommon",
 ]
 
 [[package]]

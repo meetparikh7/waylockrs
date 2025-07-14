@@ -3,11 +3,13 @@ mod background_image;
 mod cairo_extras;
 mod config;
 mod easy_surface;
+mod keyboard_state;
 mod overlay;
 
 use crate::{
     auth::{PasswordBuffer, create_and_run_auth_loop},
     cairo_extras::CairoExtras,
+    keyboard_state::KeyboardState,
 };
 use std::{
     collections::HashMap,
@@ -112,6 +114,7 @@ fn main() {
                     state.lock_surfaces.clear();
                 } else {
                     state.indicator.auth_state = overlay::AuthState::Invalid;
+                    state.indicator.last_update = Instant::now();
                 }
             }
             channel::Event::Closed => {
@@ -142,7 +145,7 @@ fn main() {
         lock: None,
         lock_surfaces: HashMap::new(),
         output_to_lock_surfaces: HashMap::new(),
-        keyboard: None,
+        keyboard: KeyboardState::new(None),
         password: PasswordBuffer::new(),
         authenticated: false,
         auth_req_send,
@@ -185,7 +188,7 @@ struct State {
     background_image: Option<cairo::ImageSurface>,
     lock_surfaces: HashMap<ObjectId, LockSurface>,
     output_to_lock_surfaces: HashMap<ObjectId, ObjectId>,
-    keyboard: Option<wl_keyboard::WlKeyboard>,
+    keyboard: KeyboardState,
     lock: Option<SessionLock>,
     password: PasswordBuffer,
     authenticated: bool,
@@ -307,19 +310,19 @@ impl SeatHandler for State {
         capability: seat::Capability,
     ) {
         if capability == seat::Capability::Keyboard {
-            self.keyboard = Some(
-                self.seat_state
-                    .get_keyboard_with_repeat(
-                        qh,
-                        &seat,
-                        None,
-                        self.loop_handle.clone(),
-                        Box::new(|state, _wl_kbd, event| {
-                            state.handle_key_press_or_repeat(event);
-                        }),
-                    )
-                    .expect("Failed to get keyboard"),
-            )
+            let keyboard = self
+                .seat_state
+                .get_keyboard_with_repeat(
+                    qh,
+                    &seat,
+                    None,
+                    self.loop_handle.clone(),
+                    Box::new(|state, _wl_kbd, event| {
+                        state.handle_key_press_or_repeat(event);
+                    }),
+                )
+                .expect("Failed to get keyboard");
+            self.keyboard = KeyboardState::new(Some(keyboard));
         }
     }
 
@@ -387,9 +390,21 @@ impl KeyboardHandler for State {
         _keyboard: &wl_keyboard::WlKeyboard,
         _serial: u32,
         modifiers: keyboard::Modifiers,
-        _layout: u32,
+        layout: u32,
     ) {
-        self.indicator.is_caps_lock = modifiers.caps_lock;
+        self.keyboard.is_caps_lock = modifiers.caps_lock;
+        self.keyboard.is_control = modifiers.ctrl;
+        self.keyboard.set_active_layout(layout);
+    }
+
+    fn update_keymap(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _keyboard: &wl_keyboard::WlKeyboard,
+        keymap: keyboard::Keymap<'_>,
+    ) {
+        self.keyboard.parse_keymap_layouts(keymap);
     }
 }
 
@@ -486,6 +501,7 @@ impl State {
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
             self.indicator.input_state = overlay::InputState::Idle;
+            self.indicator.auth_state = overlay::AuthState::Idle;
         }
         let mut requested_reframe = false;
         for lock_surface in &mut self.lock_surfaces.values_mut() {
@@ -514,7 +530,8 @@ impl State {
                     context.restore().unwrap();
 
                     if self.config.show_indicator {
-                        self.indicator.draw(&context, width, height, 1.0);
+                        self.indicator
+                            .draw(&context, width, height, 1.0, &self.keyboard);
                     }
                     if self.config.show_clock {
                         self.clock.draw(&context, width, height, 1.0);

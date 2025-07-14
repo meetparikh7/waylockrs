@@ -1,4 +1,4 @@
-background_color = 0xFFFFFFFF
+background_color = 0x1D1D1DFF
 background_image = "path/to/image"
 background_mode = "fill"
 show_clock = true
@@ -16,6 +16,7 @@ radius = 50.0
 thickness = 10.0
 show_caps_lock_indicator = true
 show_caps_lock_text = true
+hide_keyboard_layout = false
 show_text = true
 show_even_if_idle = false
 

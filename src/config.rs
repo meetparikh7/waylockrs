@@ -100,6 +100,7 @@ pub struct Indicator {
     pub thickness: f64,
     pub show_caps_lock_indicator: bool,
     pub show_caps_lock_text: bool,
+    pub hide_keyboard_layout: bool,
     pub show_text: bool,
     pub show_even_if_idle: bool,
 }
