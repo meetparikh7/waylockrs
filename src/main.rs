@@ -56,7 +56,14 @@ fn main() {
 
     let config_str = std::fs::read_to_string("config.toml").unwrap();
     let config = Config::parse(&config_str);
-    println!("{:?}", config);
+    if config.show_help {
+        println!("Usage: funlock --background-image path/to/image");
+        println!("Please refer to the default config for all options");
+        println!("");
+        println!("Note: config can be specified in $XDG_CONFIG_DIR/funlock/config.toml");
+        println!("Note: or via CLI, e.g. --clock.font-size=100.0");
+        return;
+    }
 
     let conn = Connection::connect_to_env().unwrap();
 

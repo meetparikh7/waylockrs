@@ -7,6 +7,7 @@ edition = "2024"
 cairo-rs = { version = "0.20.12", default-features = false }
 env_logger = "0.11.8"
 image = "0.25.6"
+lexopt = "0.3.1"
 pam-client = "0.5.0"
 rand = "0.9.1"
 secstr = "0.5.1"

@@ -1,5 +1,5 @@
 background_color = 0xFFFFFFFF
-# background_image = "path/to/image"
+background_image = "path/to/image"
 show_clock = true
 show_indicator = true
 
