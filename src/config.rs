@@ -1,9 +1,9 @@
 use std::ffi::OsString;
 
 use lexopt::ValueExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundMode {
     Stretch,
@@ -37,7 +37,23 @@ impl<'de> Deserialize<'de> for Color {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+impl Serialize for Color {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let bytes: [u8; 4] = [
+            (self.red * 256.0).round().clamp(0.0, 255.0) as u8,
+            (self.green * 256.0).round().clamp(0.0, 255.0) as u8,
+            (self.blue * 256.0).round().clamp(0.0, 255.0) as u8,
+            (self.alpha * 256.0).round().clamp(0.0, 255.0) as u8,
+        ];
+        let u32_val: u32 = u32::from_be_bytes(bytes);
+        serializer.serialize_u32(u32_val)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ColorSet {
     pub input: Color,
@@ -47,7 +63,7 @@ pub struct ColorSet {
     pub wrong: Color,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Clock {
     pub show_seconds: bool,
@@ -57,7 +73,7 @@ pub struct Clock {
     pub outline_width: f64,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndicatorColors {
     pub inside: ColorSet,
@@ -66,7 +82,7 @@ pub struct IndicatorColors {
     pub text: ColorSet,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndicatorHighlights {
     pub backspace: Color,
@@ -75,7 +91,7 @@ pub struct IndicatorHighlights {
     pub caps_lock_key: Color,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Indicator {
     pub colors: IndicatorColors,
@@ -88,7 +104,7 @@ pub struct Indicator {
     pub show_even_if_idle: bool,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub background_color: Color,
