@@ -45,7 +45,7 @@ use wayland_client::{
 };
 
 use crate::{
-    background_image::{BackgroundMode, load_image, render_background_image},
+    background_image::{load_image, render_background_image},
     config::Config,
     easy_surface::EasySurface,
     overlay::{Clock, Indicator},
@@ -531,7 +531,7 @@ impl State {
                             render_background_image(
                                 &context,
                                 &image,
-                                BackgroundMode::Fit,
+                                self.config.background_mode,
                                 width,
                                 height,
                             );

@@ -1,5 +1,6 @@
 background_color = 0xFFFFFFFF
 background_image = "path/to/image"
+background_mode = "fill"
 show_clock = true
 show_indicator = true
 

@@ -1,13 +1,4 @@
-#[allow(dead_code)]
-#[derive(PartialEq)]
-pub enum BackgroundMode {
-    Stretch,
-    Fill,
-    Fit,
-    Center,
-    Tile,
-    SolidColor,
-}
+use crate::config::BackgroundMode;
 
 pub fn load_image(path: &str) -> cairo::ImageSurface {
     let image = match image::open(&path) {
@@ -98,7 +89,6 @@ pub fn render_background_image(
             pattern.set_extend(cairo::Extend::Repeat);
             context.set_source(pattern).unwrap();
         }
-        BackgroundMode::SolidColor => {}
     };
     context.paint().unwrap();
     context.restore().unwrap();

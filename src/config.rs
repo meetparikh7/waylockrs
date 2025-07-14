@@ -3,6 +3,16 @@ use std::ffi::OsString;
 use lexopt::ValueExt;
 use serde::Deserialize;
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundMode {
+    Stretch,
+    Fill,
+    Fit,
+    Center,
+    Tile,
+}
+
 #[derive(Clone, Debug)]
 pub struct Color {
     pub red: f64,
@@ -82,6 +92,7 @@ pub struct Indicator {
 pub struct Config {
     pub background_color: Color,
     pub background_image: Option<String>,
+    pub background_mode: BackgroundMode,
     pub clock: Clock,
     pub indicator: Indicator,
     pub show_clock: bool,
