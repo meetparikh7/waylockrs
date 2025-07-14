@@ -1,6 +1,7 @@
 mod auth;
 mod background_image;
 mod colors;
+mod config;
 mod constants;
 mod easy_surface;
 mod overlay;
@@ -39,12 +40,17 @@ use wayland_client::{
 
 use crate::{
     background_image::{BackgroundMode, load_image, render_background_image},
+    config::Config,
     easy_surface::EasySurface,
     overlay::{Clock, Indicator},
 };
 
 fn main() {
     env_logger::init();
+
+    let config_str = std::fs::read_to_string("config.toml").unwrap();
+    let config = Config::parse(&config_str);
+    println!("{:?}", config);
 
     let conn = Connection::connect_to_env().unwrap();
 

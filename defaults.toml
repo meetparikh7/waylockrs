@@ -1,0 +1,50 @@
+background_color = 0xFFFFFFFF
+# background_image = "path/to/image"
+show_clock = true
+show_indicator = true
+
+[clock]
+show_seconds = false
+text_color = 0xFFFFFFFF
+outline_color = 0x1A1A1AC0
+
+[indicator]
+radius = 50.0
+thickness = 10.0
+show_caps_lock_indicator = true
+show_caps_lock_text = true
+show_text = true
+
+[indicator.colors.inside]
+input = 0x000000C0
+cleared = 0xE5A445C0
+caps_lock = 0x000000C0
+verifying = 0x0072FFC0
+wrong = 0xFA0000C0
+
+[indicator.colors.line]
+input = 0x000000FF
+cleared = 0x000000FF
+caps_lock = 0x000000FF
+verifying = 0x000000FF
+wrong = 0x000000FF
+
+[indicator.colors.ring]
+input = 0x337D00FF
+cleared = 0xE5A445FF
+caps_lock = 0xE5A445FF
+verifying = 0x3300FFFF
+wrong = 0x7D3300FF
+
+[indicator.colors.text]
+input = 0xE5A445FF
+cleared = 0x000000FF
+caps_lock = 0xE5A445FF
+verifying = 0x000000FF
+wrong = 0x000000FF
+
+[indicator.highlights]
+backspace = 0xDB3300FF
+key = 0x33DB00FF
+caps_lock_backspace = 0xDB3300FF
+caps_lock_key = 0x33DB00FF
