@@ -1,6 +1,7 @@
 use std::time::Instant;
 
-use crate::colors;
+use crate::CairoExtras;
+use crate::config;
 
 // Indicator state: status of authentication attempt
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -21,13 +22,10 @@ pub enum InputState {
 }
 
 pub struct Indicator {
-    pub radius: f64,
-    pub arc_thickness: f64,
+    pub config: config::Indicator,
     pub input_state: InputState,
     pub auth_state: AuthState,
     pub is_caps_lock: bool,
-    pub show_caps_lock_indictor: bool,
-    pub show_caps_lock_text: bool,
     pub last_update: Instant,
     pub highlight_start: u32,
 }
@@ -45,21 +43,20 @@ fn configure_font_drawing(context: &cairo::Context, font_size: f64) {
 }
 
 impl Indicator {
-    fn set_color_for_state(&self, context: &cairo::Context, colorset: &colors::ColorSet) {
-        let (r, g, b, a) = if self.input_state == InputState::Clear {
-            colors::map_to_rgba(colorset.cleared)
+    fn set_color_for_state(&self, context: &cairo::Context, colorset: &config::ColorSet) {
+        if self.input_state == InputState::Clear {
+            context.set_source_color(&colorset.cleared)
         } else if self.auth_state == AuthState::Validating {
-            colors::map_to_rgba(colorset.verifying)
+            context.set_source_color(&colorset.verifying)
         } else if self.auth_state == AuthState::Invalid {
-            colors::map_to_rgba(colorset.wrong)
+            context.set_source_color(&colorset.wrong)
         } else {
-            if self.is_caps_lock && self.show_caps_lock_indictor {
-                colors::map_to_rgba(colorset.caps_lock)
+            if self.is_caps_lock && self.config.show_caps_lock_indicator {
+                context.set_source_color(&colorset.caps_lock)
             } else {
-                colors::map_to_rgba(colorset.input)
+                context.set_source_color(&colorset.input)
             }
         };
-        context.set_source_rgba(r, g, b, a);
     }
 
     fn text_for_state(&self) -> Option<&'static str> {
@@ -69,7 +66,7 @@ impl Indicator {
             Some("Verifying")
         } else if self.auth_state == AuthState::Invalid {
             Some("Wrong")
-        } else if self.is_caps_lock && self.show_caps_lock_text {
+        } else if self.is_caps_lock && self.config.show_caps_lock_text {
             Some("Caps Lock")
         } else {
             None
@@ -80,27 +77,29 @@ impl Indicator {
         const PI: f64 = std::f64::consts::PI;
         const TYPE_INDICATOR_RANGE: f64 = PI / 3.0;
 
-        let arc_thickness = self.arc_thickness * scale;
-        let arc_radius = self.radius * scale;
+        let arc_thickness = self.config.thickness * scale;
+        let arc_radius = self.config.radius * scale;
         let xc = (width as f64) * scale / 2.0;
         let yc = (height as f64) * scale * 0.5 + arc_radius * 3.0;
 
         // fill inner circle
         context.set_line_width(0.0);
         context.arc(xc, yc, arc_radius, 0.0, 2.0 * PI);
-        self.set_color_for_state(&context, &colors::INSIDE);
+        self.set_color_for_state(&context, &self.config.colors.inside);
         context.fill_preserve().unwrap();
         context.stroke().unwrap();
 
         // Draw ring
         context.set_line_width(arc_thickness);
         context.arc(xc, yc, arc_radius, 0.0, 2.0 * PI);
-        self.set_color_for_state(&context, &colors::RING);
+        self.set_color_for_state(&context, &self.config.colors.ring);
         context.stroke().unwrap();
 
-        if let Some(text) = self.text_for_state() {
+        if self.config.show_text
+            && let Some(text) = self.text_for_state()
+        {
             configure_font_drawing(context, arc_radius / 3.0);
-            self.set_color_for_state(context, &colors::TEXT);
+            self.set_color_for_state(context, &self.config.colors.text);
             let extents = context.text_extents(text).unwrap();
             let font_extents = context.font_extents().unwrap();
             let x = extents.width() / 2.0 + extents.x_bearing();
@@ -116,25 +115,24 @@ impl Indicator {
             let highlight_end = highlight_start + TYPE_INDICATOR_RANGE;
             context.arc(xc, yc, arc_radius, highlight_start, highlight_end);
             let highlight = if self.input_state == InputState::Letter {
-                if self.is_caps_lock && self.show_caps_lock_indictor {
-                    colors::CAPS_LOCK_KEY_HIGHLIGHT
+                if self.is_caps_lock && self.config.show_caps_lock_indicator {
+                    &self.config.highlights.caps_lock_key
                 } else {
-                    colors::KEY_HIGHLIGHT
+                    &self.config.highlights.key
                 }
             } else {
-                if self.is_caps_lock && self.show_caps_lock_indictor {
-                    colors::CAPS_LOCK_BS_HIGHLIGHT
+                if self.is_caps_lock && self.config.show_caps_lock_indicator {
+                    &self.config.highlights.caps_lock_backspace
                 } else {
-                    colors::BS_HIGHLIGHT
+                    &self.config.highlights.backspace
                 }
             };
-            let (r, g, b, a) = colors::map_to_rgba(highlight);
-            context.set_source_rgba(r, g, b, a);
+            context.set_source_color(highlight);
             context.stroke().unwrap();
         }
 
         // Draw inner + outer border of the circle
-        self.set_color_for_state(&context, &colors::LINE);
+        self.set_color_for_state(&context, &self.config.colors.line);
         context.set_line_width(2.0 * scale);
         context.arc(xc, yc, arc_radius - arc_thickness / 2.0, 0.0, 2.0 * PI);
         context.stroke().unwrap();
@@ -144,7 +142,7 @@ impl Indicator {
 }
 
 pub struct Clock {
-    pub display_seconds: bool,
+    pub config: config::Clock,
 }
 
 impl Clock {
@@ -155,7 +153,7 @@ impl Clock {
         let xc = (width as f64) * scale / 2.0;
         let yc = (height as f64) * scale / 2.0;
 
-        let format = if self.display_seconds {
+        let format = if self.config.show_seconds {
             format_description::parse_borrowed::<2>("[hour]:[minute]:[second]")
         } else {
             format_description::parse_borrowed::<2>("[hour]:[minute]")
@@ -175,12 +173,10 @@ impl Clock {
         context.move_to(xc - x, yc + y);
         context.text_path(&text);
 
-        let (r, g, b, a) = colors::map_to_rgba(colors::CLOCK_FILL_COLOR);
-        context.set_source_rgba(r, g, b, a);
+        context.set_source_color(&self.config.text_color);
         context.fill_preserve().unwrap();
 
-        let (r, g, b, a) = colors::map_to_rgba(colors::CLOCK_OUTLINE_COLOR);
-        context.set_source_rgba(r, g, b, a);
+        context.set_source_color(&self.config.outline_color);
         context.set_line_width(2.0);
         context.stroke().unwrap();
 

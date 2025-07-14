@@ -1,15 +1,13 @@
 mod auth;
 mod background_image;
-mod colors;
+mod cairo_extras;
 mod config;
 mod constants;
 mod easy_surface;
 mod overlay;
 
-use std::{
-    env,
-    time::{Duration, Instant},
-};
+use crate::cairo_extras::CairoExtras;
+use std::time::{Duration, Instant};
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -72,25 +70,24 @@ fn main() {
         shm_state: Shm::bind(&globals, &qh).expect("wl_shm not available"),
         xdg_shell_state: XdgShell::bind(&globals, &qh).expect("xdg shell not available"),
 
+        config: config.clone(),
         windows: Vec::new(),
         password: String::new(),
         indicator: Indicator {
-            radius: 50.0,
-            arc_thickness: 10.0,
+            config: config.indicator.clone(),
             input_state: overlay::InputState::Idle,
             auth_state: overlay::AuthState::Idle,
             is_caps_lock: false,
-            show_caps_lock_indictor: true,
-            show_caps_lock_text: true,
             last_update: Instant::now(),
             highlight_start: 0,
         },
         clock: Clock {
-            display_seconds: true,
+            config: config.clock.clone(),
         },
     };
 
-    for path in env::args_os().skip(1) {
+    {
+        let path = state.config.background_image.clone();
         let surface = state.compositor_state.create_surface(&qh);
         let (indicator_subsurface, indicator_surface) = state
             .subcompositor_state
@@ -117,7 +114,7 @@ fn main() {
 
         state.windows.push(ImageViewer {
             window,
-            image: load_image(&path.to_string_lossy()),
+            image: load_image(&path.unwrap()),
             base_surface: EasySurface::new(surface, wl_shm::Format::Argb8888),
             indicator_surface: EasySurface::new(indicator_surface, wl_shm::Format::Argb8888),
         });
@@ -149,6 +146,7 @@ struct State {
     seat_state: SeatState,
     xdg_shell_state: XdgShell,
 
+    config: Config,
     windows: Vec<ImageViewer>,
     password: String,
     indicator: Indicator,
@@ -424,8 +422,12 @@ impl State {
                     context.paint().unwrap();
                     context.restore().unwrap();
 
-                    self.indicator.draw(&context, width, height, 1.0);
-                    self.clock.draw(&context, width, height, 1.0);
+                    if self.config.show_indicator {
+                        self.indicator.draw(&context, width, height, 1.0);
+                    }
+                    if self.config.show_clock {
+                        self.clock.draw(&context, width, height, 1.0);
+                    }
                 });
 
             viewer
@@ -449,7 +451,7 @@ impl State {
                         context.save().unwrap();
 
                         context.set_operator(cairo::Operator::Source);
-                        context.set_source_rgb(1.0, 1.0, 1.0);
+                        context.set_source_color(&self.config.background_color);
                         context.paint().unwrap();
                         context.save().unwrap();
 
