@@ -14,6 +14,10 @@ use smithay_client_toolkit::{
     delegate_compositor, delegate_keyboard, delegate_output, delegate_registry, delegate_seat,
     delegate_shm, delegate_subcompositor, delegate_xdg_shell, delegate_xdg_window,
     output::{OutputHandler, OutputState},
+    reexports::{
+        calloop::{EventLoop, LoopHandle},
+        calloop_wayland_source::WaylandSource,
+    },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
@@ -52,7 +56,7 @@ fn main() {
 
     let conn = Connection::connect_to_env().unwrap();
 
-    let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
+    let (globals, event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
     let compositor_state =
@@ -61,7 +65,15 @@ fn main() {
         SubcompositorState::bind(compositor_state.wl_compositor().clone(), &globals, &qh)
             .expect("wl_subcompositor not available");
 
+    let mut event_loop: EventLoop<State> =
+        EventLoop::try_new().expect("failed to initialize the event loop");
+    let loop_handle = event_loop.handle();
+    WaylandSource::new(conn.clone(), event_queue)
+        .insert(loop_handle)
+        .expect("Failed to insert loop_handle");
+
     let mut state = State {
+        loop_handle: event_loop.handle(),
         registry_state: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
         compositor_state,
@@ -72,6 +84,7 @@ fn main() {
 
         config: config.clone(),
         windows: Vec::new(),
+        keyboard: None,
         password: String::new(),
         indicator: Indicator {
             config: config.indicator.clone(),
@@ -128,7 +141,9 @@ fn main() {
     // We don't draw immediately, the configure will notify us when to first draw.
 
     loop {
-        event_queue.blocking_dispatch(&mut state).unwrap();
+        event_loop
+            .dispatch(None, &mut state)
+            .expect("Failed to run");
 
         if state.windows.is_empty() {
             println!("exiting example");
@@ -138,6 +153,7 @@ fn main() {
 }
 
 struct State {
+    loop_handle: LoopHandle<'static, Self>,
     registry_state: RegistryState,
     output_state: OutputState,
     compositor_state: CompositorState,
@@ -148,6 +164,7 @@ struct State {
 
     config: Config,
     windows: Vec<ImageViewer>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
     password: String,
     indicator: Indicator,
     clock: Clock,
@@ -295,7 +312,20 @@ impl SeatHandler for State {
         capability: seat::Capability,
     ) {
         if capability == seat::Capability::Keyboard {
-            let _keyboard = self.seat_state.get_keyboard(&qh, &seat, Option::None);
+            self.keyboard = Some(
+                self.seat_state
+                    .get_keyboard_with_repeat(
+                        qh,
+                        &seat,
+                        None,
+                        self.loop_handle.clone(),
+                        Box::new(|state, _wl_kbd, event| {
+                            println!("repeat {:?} {:?}", event.utf8, event.keysym);
+                            state.handle_key_press_or_repeat(event);
+                        }),
+                    )
+                    .expect("Failed to get keyboard"),
+            )
         }
     }
 
@@ -343,30 +373,8 @@ impl KeyboardHandler for State {
         _serial: u32,
         event: keyboard::KeyEvent,
     ) {
-        if event.keysym == keyboard::Keysym::Return {
-            let verification = auth::verify(&self.password);
-            println!("Auth verify {:?} {:?}", verification, &self.password);
-            self.password.clear();
-        } else if event.keysym == keyboard::Keysym::BackSpace {
-            if self.password.len() != 0 {
-                self.password = self.password[0..self.password.len() - 1].to_string();
-            }
-            self.indicator.input_state = if self.password.len() == 0 {
-                overlay::InputState::Clear
-            } else {
-                overlay::InputState::Backspace
-            };
-            self.indicator.last_update = Instant::now();
-        } else if let Some(input) = &event.utf8 {
-            self.password.push_str(&input);
-            self.indicator.input_state = overlay::InputState::Letter;
-            self.indicator.last_update = Instant::now();
-        } else {
-            self.indicator.input_state = overlay::InputState::Neutral;
-            self.indicator.last_update = Instant::now();
-        }
-        self.indicator.highlight_start = rand::random::<u32>() % 2048;
         println!("press {:?} {:?}", event.utf8, event.keysym);
+        self.handle_key_press_or_repeat(event);
     }
 
     fn release_key(
@@ -393,6 +401,32 @@ impl KeyboardHandler for State {
 }
 
 impl State {
+    pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
+        if event.keysym == keyboard::Keysym::Return {
+            let verification = auth::verify(&self.password);
+            println!("Auth verify {:?} {:?}", verification, &self.password);
+            self.password.clear();
+        } else if event.keysym == keyboard::Keysym::BackSpace {
+            if self.password.len() != 0 {
+                self.password = self.password[0..self.password.len() - 1].to_string();
+            }
+            self.indicator.input_state = if self.password.len() == 0 {
+                overlay::InputState::Clear
+            } else {
+                overlay::InputState::Backspace
+            };
+            self.indicator.last_update = Instant::now();
+        } else if let Some(input) = &event.utf8 {
+            self.password.push_str(&input);
+            self.indicator.input_state = overlay::InputState::Letter;
+            self.indicator.last_update = Instant::now();
+        } else {
+            self.indicator.input_state = overlay::InputState::Neutral;
+            self.indicator.last_update = Instant::now();
+        }
+        self.indicator.highlight_start = rand::random::<u32>() % 2048;
+    }
+
     pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
             self.indicator.input_state = overlay::InputState::Idle;
