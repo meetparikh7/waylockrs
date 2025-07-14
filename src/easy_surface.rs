@@ -103,7 +103,7 @@ impl EasySurface {
         &self.surface
     }
 
-    pub fn render<F, D>(&mut self, qh: &QueueHandle<D>, render: F)
+    pub fn render<F, D>(&mut self, qh: &QueueHandle<D>, request_frame: bool, render: F) -> bool
     where
         F: FnOnce(&mut Buffer, &mut [u8], i32, i32, bool) -> (),
         D: wayland_client::Dispatch<wl_callback::WlCallback, WlSurface> + 'static,
@@ -112,7 +112,7 @@ impl EasySurface {
             Some(inner) => inner,
             None => {
                 // Not configured
-                return;
+                return false;
             }
         };
 
@@ -120,15 +120,21 @@ impl EasySurface {
 
         // Render and commit if buffers are available, otherwise do nothing as the
         // other invoker would trigger a next frame
-        if let Some((slot_buffer, canvas)) = inner.get_active() {
+        let rendered = if let Some((slot_buffer, canvas)) = inner.get_active() {
             let buffer = &mut slot_buffer.buffer;
             render(buffer, canvas, width, height, slot_buffer.resized);
             buffer.attach_to(&self.surface).unwrap();
             self.surface.damage_buffer(0, 0, width, height);
             self.surface.commit();
-            self.surface.frame(qh, self.surface.clone());
+            if request_frame {
+                self.surface.frame(qh, self.surface.clone());
+            }
             slot_buffer.resized = false;
-        }
+            true
+        } else {
+            false
+        };
         self.inner = Some(inner);
+        rendered
     }
 }

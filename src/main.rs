@@ -470,9 +470,11 @@ impl State {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
             self.indicator.input_state = overlay::InputState::Idle;
         }
+        let mut requested_reframe = false;
         for lock_surface in &mut self.lock_surfaces.values_mut() {
-            lock_surface.indicator_surface.render(
+            let rendered = lock_surface.indicator_surface.render(
                 qh,
+                !requested_reframe,
                 |_buffer, canvas, width, height, _resized| {
                     let stride = width * 4;
                     let cairo_surface = unsafe {
@@ -502,10 +504,12 @@ impl State {
                     }
                 },
             );
+            requested_reframe = requested_reframe || rendered;
 
-            lock_surface
-                .base_surface
-                .render(qh, |_buffer, canvas, width, height, resized| {
+            let rendered = lock_surface.base_surface.render(
+                qh,
+                !requested_reframe,
+                |_buffer, canvas, width, height, resized| {
                     if resized {
                         let stride = width * 4;
                         let cairo_surface = unsafe {
@@ -540,7 +544,9 @@ impl State {
                         context.restore().unwrap();
                         context.identity_matrix();
                     }
-                });
+                },
+            );
+            requested_reframe = requested_reframe || rendered;
         }
     }
 }
