@@ -2,7 +2,6 @@ mod auth;
 mod background_image;
 mod cairo_extras;
 mod config;
-mod constants;
 mod easy_surface;
 mod overlay;
 

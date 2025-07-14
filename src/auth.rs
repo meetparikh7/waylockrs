@@ -1,12 +1,13 @@
+use std::ffi::{CStr, CString};
 use std::thread;
 
-use pam_client::conv_mock::Conversation;
-use pam_client::{Context, Flag};
+use log::{debug, error};
+use pam_client::{Context, ErrorCode, Flag};
 use secstr::SecVec;
 use smithay_client_toolkit::reexports::{calloop::EventLoop, calloop::channel};
 use users::get_current_username;
 
-use crate::constants;
+const SERVICE_NAME: &str = "funlock";
 
 pub struct PasswordBuffer(SecVec<u8>);
 
@@ -57,29 +58,53 @@ impl PasswordBuffer {
     }
 }
 
-pub fn verify(password: &str) -> bool {
-    let username = get_current_username()
-        .expect("Failed to get username")
-        .to_string_lossy()
-        .to_string();
-    let conv = Conversation::with_credentials(username.clone(), password);
+pub struct LockConversation {
+    pub password: Option<PasswordBuffer>,
+}
 
-    let mut context = Context::new(
-        constants::SERVICE_NAME, // Service name, decides which policy is used (see `/etc/pam.d`)
-        Some(username.as_str()), // Optional preset user name
-        conv,                    // Handler for user interaction
-    )
-    .expect("Failed to initialize PAM context");
+impl pam_client::ConversationHandler for LockConversation {
+    fn init(&mut self, _default_user: Option<impl AsRef<str>>) {}
 
-    // Authenticate the user (ask for password, 2nd-factor token, fingerprint, etc.)
-    return context.authenticate(Flag::NONE).is_ok();
+    fn prompt_echo_on(&mut self, _msg: &CStr) -> Result<CString, ErrorCode> {
+        Err(ErrorCode::ABORT)
+    }
+
+    fn prompt_echo_off(&mut self, _msg: &CStr) -> Result<CString, ErrorCode> {
+        if let Some(password) = self.password.take() {
+            CString::new(password.unsecure()).map_err(|_| ErrorCode::ABORT)
+        } else {
+            Err(ErrorCode::ABORT)
+        }
+    }
+
+    fn text_info(&mut self, _msg: &CStr) {}
+    fn error_msg(&mut self, _msg: &CStr) {}
+    fn radio_prompt(&mut self, _msg: &CStr) -> Result<bool, ErrorCode> {
+        Ok(false)
+    }
 }
 
 pub fn create_and_run_auth_loop() -> (channel::Sender<PasswordBuffer>, channel::Channel<bool>) {
     struct AuthLoopState {
         auth_res_send: channel::Sender<bool>,
         main_closed: bool,
+        context: pam_client::Context<LockConversation>,
     }
+
+    let username = get_current_username()
+        .expect("Failed to get username")
+        .to_str()
+        .expect("Failed to get non-unicode username")
+        .to_string();
+
+    let conversation = LockConversation { password: None };
+    let context = Context::new(
+        SERVICE_NAME,            // Service name, decides which policy is used (see `/etc/pam.d`)
+        Some(username.as_str()), // Optional preset user name
+        conversation,            // Handler for user interaction
+    )
+    .expect("Failed to initialize PAM context");
+    debug!("Prepared to authenticate user '{}'", username);
 
     let (auth_req_send, auth_req_recv) = channel::channel::<PasswordBuffer>();
     let (auth_res_send, auth_res_recv) = channel::channel::<bool>();
@@ -90,7 +115,14 @@ pub fn create_and_run_auth_loop() -> (channel::Sender<PasswordBuffer>, channel::
             .handle()
             .insert_source(auth_req_recv, |evt, _metadata, state| match evt {
                 channel::Event::Msg(password) => {
-                    let status = verify(password.unsecure());
+                    state.context.conversation_mut().password = Some(password);
+                    let status = match state.context.authenticate(Flag::NONE) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            error!("Pam authenticate failed with {:?}", err);
+                            false
+                        }
+                    };
                     state.auth_res_send.send(status).unwrap();
                 }
                 channel::Event::Closed => state.main_closed = true,
@@ -100,6 +132,7 @@ pub fn create_and_run_auth_loop() -> (channel::Sender<PasswordBuffer>, channel::
         let mut state = AuthLoopState {
             auth_res_send,
             main_closed: false,
+            context,
         };
 
         while !state.main_closed {
