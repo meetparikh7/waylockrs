@@ -14,6 +14,7 @@ use crate::{
 use std::{
     collections::HashMap,
     path::Path,
+    sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
 };
 
@@ -165,9 +166,18 @@ fn main() {
         clock: Clock {
             config: config.clock.clone(),
         },
+        sigusr_received: Arc::new(AtomicBool::new(false)),
     };
 
     let _lock = state.session_lock_state.lock(&qh).expect("Could not lock");
+
+    {
+        const SIGUSR1: i32 = 10;
+        match signal_hook::flag::register(SIGUSR1, Arc::clone(&state.sigusr_received)) {
+            Ok(_) => {}
+            Err(err) => error!("Failed to register SIGUSR1 handling with {err}"),
+        };
+    }
 
     event_loop
         .run(None, &mut state, |state| {
@@ -179,9 +189,21 @@ fn main() {
                         LifeCycle::Initing
                     }
                 }
-                LifeCycle::Locked => LifeCycle::Locked,
-                LifeCycle::Authenticated => LifeCycle::ReleasingLocks,
-                LifeCycle::ReleasingLocks => LifeCycle::Ended,
+                LifeCycle::Locked => {
+                    if state
+                        .sigusr_received
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                    {
+                        if let Some(lock) = state.lock.take() {
+                            lock.unlock();
+                        }
+                        state.lock_surfaces.clear();
+                        LifeCycle::Authenticated
+                    } else {
+                        LifeCycle::Locked
+                    }
+                }
+                LifeCycle::Authenticated => LifeCycle::Ended,
                 LifeCycle::Ended => {
                     state.end_signal.stop();
                     LifeCycle::Ended
@@ -196,7 +218,6 @@ enum LifeCycle {
     Initing,
     Locked,
     Authenticated,
-    ReleasingLocks,
     Ended,
 }
 struct State {
@@ -221,6 +242,7 @@ struct State {
     auth_req_send: channel::Sender<PasswordBuffer>,
     indicator: Indicator,
     clock: Clock,
+    sigusr_received: Arc<AtomicBool>,
 }
 
 struct LockSurface {
