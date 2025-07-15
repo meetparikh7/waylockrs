@@ -103,6 +103,7 @@ pub struct Indicator {
     pub hide_keyboard_layout: bool,
     pub show_text: bool,
     pub show_even_if_idle: bool,
+    pub show_failed_attempts: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

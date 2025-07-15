@@ -30,6 +30,39 @@ pub enum InputState {
     Neutral,
 }
 
+pub struct AttemptsCounter {
+    value: u32,
+    value_str: String,
+}
+
+impl AttemptsCounter {
+    pub fn new() -> Self {
+        Self {
+            value: 0,
+            value_str: "".to_string(),
+        }
+    }
+
+    pub fn value(&self) -> u32 {
+        self.value
+    }
+
+    pub fn inc(&mut self) {
+        if self.value < 1000 {
+            self.value += 1;
+            self.value_str = if self.value > 999 {
+                "999+".to_string()
+            } else {
+                format!("{}", self.value)
+            };
+        }
+    }
+
+    pub fn format(&self) -> &str {
+        &self.value_str
+    }
+}
+
 pub struct Indicator {
     pub config: config::Indicator,
     pub input_state: InputState,
@@ -37,6 +70,7 @@ pub struct Indicator {
     pub is_caps_lock: bool,
     pub last_update: Instant,
     pub highlight_start: u32,
+    pub failed_attempts: AttemptsCounter,
 }
 
 fn configure_font_drawing(context: &cairo::Context, font_size: f64) {
@@ -68,7 +102,7 @@ impl Indicator {
         };
     }
 
-    fn text_for_state(&self) -> Option<&'static str> {
+    fn text_for_state(&self) -> Option<&str> {
         if self.input_state == InputState::Clear {
             Some("Cleared")
         } else if self.auth_state == AuthState::Validating {
@@ -78,7 +112,11 @@ impl Indicator {
         } else if self.is_caps_lock && self.config.show_caps_lock_text {
             Some("Caps Lock")
         } else {
-            None
+            if self.config.show_failed_attempts && self.failed_attempts.value() > 0 {
+                Some(self.failed_attempts.format())
+            } else {
+                None
+            }
         }
     }
 

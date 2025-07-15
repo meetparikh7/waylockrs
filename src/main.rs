@@ -114,6 +114,7 @@ fn main() {
                     state.lock_surfaces.clear();
                 } else {
                     state.indicator.auth_state = overlay::AuthState::Invalid;
+                    state.indicator.failed_attempts.inc();
                     state.indicator.last_update = Instant::now();
                 }
             }
@@ -153,6 +154,7 @@ fn main() {
             config: config.indicator.clone(),
             input_state: overlay::InputState::Idle,
             auth_state: overlay::AuthState::Idle,
+            failed_attempts: overlay::AttemptsCounter::new(),
             is_caps_lock: false,
             last_update: Instant::now(),
             highlight_start: 0,
