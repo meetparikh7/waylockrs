@@ -25,7 +25,7 @@ use smithay_client_toolkit::{
     delegate_session_lock, delegate_shm, delegate_subcompositor,
     output::{OutputHandler, OutputState},
     reexports::{
-        calloop::{EventLoop, LoopHandle, channel},
+        calloop::{EventLoop, LoopHandle, LoopSignal, channel},
         calloop_wayland_source::WaylandSource,
     },
     registry::{ProvidesRegistryState, RegistryState},
@@ -108,10 +108,12 @@ fn main() {
         .handle()
         .insert_source(auth_res_recv, |evt, _metadata, state| match evt {
             channel::Event::Msg(status) => {
-                if status && state.lock.is_some() {
-                    let lock = state.lock.take();
-                    lock.unwrap().unlock();
+                if status {
+                    if let Some(lock) = state.lock.take() {
+                        lock.unlock();
+                    }
                     state.lock_surfaces.clear();
+                    state.lifecycle = LifeCycle::Authenticated;
                 } else {
                     state.indicator.auth_state = overlay::AuthState::Invalid;
                     state.indicator.failed_attempts.inc();
@@ -119,7 +121,7 @@ fn main() {
                 }
             }
             channel::Event::Closed => {
-                if !state.authenticated {
+                if state.lifecycle == LifeCycle::Locked {
                     panic!("Auth loop closed early!")
                 }
             }
@@ -148,7 +150,8 @@ fn main() {
         output_to_lock_surfaces: HashMap::new(),
         keyboard: KeyboardState::new(None),
         password: PasswordBuffer::new(),
-        authenticated: false,
+        lifecycle: LifeCycle::Initing,
+        end_signal: event_loop.get_signal(),
         auth_req_send,
         indicator: Indicator {
             config: config.indicator.clone(),
@@ -164,18 +167,38 @@ fn main() {
         },
     };
 
-    state.lock = Some(state.session_lock_state.lock(&qh).expect("Could not lock"));
+    let _lock = state.session_lock_state.lock(&qh).expect("Could not lock");
 
-    while !state.authenticated {
-        if state.lock.is_none() {
-            state.authenticated = true;
-        }
-        event_loop
-            .dispatch(None, &mut state)
-            .expect("Failed to run");
-    }
+    event_loop
+        .run(None, &mut state, |state| {
+            state.lifecycle = match state.lifecycle {
+                LifeCycle::Initing => {
+                    if state.lock.is_some() {
+                        LifeCycle::Locked
+                    } else {
+                        LifeCycle::Initing
+                    }
+                }
+                LifeCycle::Locked => LifeCycle::Locked,
+                LifeCycle::Authenticated => LifeCycle::ReleasingLocks,
+                LifeCycle::ReleasingLocks => LifeCycle::Ended,
+                LifeCycle::Ended => {
+                    state.end_signal.stop();
+                    LifeCycle::Ended
+                }
+            };
+        })
+        .unwrap();
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum LifeCycle {
+    Initing,
+    Locked,
+    Authenticated,
+    ReleasingLocks,
+    Ended,
+}
 struct State {
     loop_handle: LoopHandle<'static, Self>,
     registry_state: RegistryState,
@@ -193,7 +216,8 @@ struct State {
     keyboard: KeyboardState,
     lock: Option<SessionLock>,
     password: PasswordBuffer,
-    authenticated: bool,
+    lifecycle: LifeCycle,
+    end_signal: LoopSignal,
     auth_req_send: channel::Sender<PasswordBuffer>,
     indicator: Indicator,
     clock: Clock,
@@ -411,7 +435,8 @@ impl KeyboardHandler for State {
 }
 
 impl SessionLockHandler for State {
-    fn locked(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _session_lock: SessionLock) {
+    fn locked(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, session_lock: SessionLock) {
+        self.lock = Some(session_lock);
         for output in self.output_state.outputs() {
             self.create_lock_surface(qh, output);
         }
