@@ -23,10 +23,8 @@ pub fn load_image(path: &str) -> cairo::ImageSurface {
             .pixels()
             .zip(cairo_surface_data.as_mut().unwrap().chunks_exact_mut(4))
         {
-            // We do this in an horribly inefficient manner, for the sake of simplicity.
-            // We'll send pixels to the server in ARGB8888 format (this is one of the only
-            // formats that are guaranteed to be supported), but image provides it in
-            // big-endian RGBA8888, so we need to do the conversion.
+            // There might be a better way to do this, but since we are doing this
+            // one-off the performance seems okay.
             argb[3] = pixel.0[3];
             argb[2] = pixel.0[0];
             argb[1] = pixel.0[1];
@@ -89,6 +87,7 @@ pub fn render_background_image(
             pattern.set_extend(cairo::Extend::Repeat);
             context.set_source(pattern).unwrap();
         }
+        BackgroundMode::SolidColor => {}
     };
     context.paint().unwrap();
     context.restore().unwrap();

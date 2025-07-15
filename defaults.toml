@@ -9,7 +9,7 @@
 
 background_color = "1D1D1DFF"      # Background solid color (RGBA)
 background_image = "path/to/image" # Optional background image; omit to use color only
-background_mode = "fill"           # Options: "stretch", "fill", "fit", "center", "tile"
+background_mode = "fill"           # Options: "stretch", "fill", "fit", "center", "tile", "solid_color". 'solid_color' unsets 'background_image'
 ignore_empty_password = false      # If true, skips auth check for empty passwords
 show_clock = true                  # Show system time on the lock screen
 show_indicator = true              # Show unlock indicator (ring & text)

@@ -14,6 +14,7 @@ pub enum BackgroundMode {
     Fit,
     Center,
     Tile,
+    SolidColor,
 }
 
 fn parse_int(value: &str) -> Result<i64, ParseIntError> {
