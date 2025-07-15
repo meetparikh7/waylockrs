@@ -519,6 +519,7 @@ dependencies = [
  "env_logger",
  "image",
  "lexopt",
+ "libc",
  "log",
  "pam-client",
  "rand 0.9.1",

@@ -5,6 +5,7 @@ ignore_empty_password = false
 show_clock = true
 show_indicator = true
 ready_fd = -1
+daemonize = false
 
 [clock]
 show_seconds = false

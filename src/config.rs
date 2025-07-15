@@ -118,6 +118,7 @@ pub struct Config {
     pub show_clock: bool,
     pub show_indicator: bool,
     pub ready_fd: i32,
+    pub daemonize: bool,
 
     /// Workaround for CLI help as our Config loads the CLI flags
     #[serde(alias = "help")]

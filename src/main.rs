@@ -85,6 +85,10 @@ fn main() {
         return;
     }
 
+    if config.daemonize {
+        daemon(false, true).unwrap();
+    }
+
     let conn = Connection::connect_to_env().unwrap();
 
     let (globals, event_queue) = registry_queue_init(&conn).unwrap();
@@ -491,6 +495,17 @@ impl SessionLockHandler for State {
                 .configure(&self.shm_state, width, height);
         });
         self.draw(conn, qh, 0);
+    }
+}
+
+pub fn daemon(nochdir: bool, noclose: bool) -> Result<(), i32> {
+    use libc::c_int;
+    let res = unsafe { libc::daemon(nochdir as c_int, noclose as c_int) };
+    if res == 0 {
+        Ok(())
+    } else {
+        error!("Failed to daemonize with rc {res}");
+        Err(res)
     }
 }
 
