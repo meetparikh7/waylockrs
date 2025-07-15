@@ -108,35 +108,13 @@ fn main() {
         .insert(loop_handle)
         .expect("Failed to insert loop_handle");
 
-    let (auth_req_send, auth_res_recv) = create_and_run_auth_loop();
-
-    event_loop
-        .handle()
-        .insert_source(auth_res_recv, |evt, _metadata, state| match evt {
-            channel::Event::Msg(status) => {
-                if status {
-                    if let Some(lock) = state.lock.take() {
-                        lock.unlock();
-                    }
-                    state.lock_surfaces.clear();
-                    state.lifecycle = LifeCycle::Authenticated;
-                } else {
-                    state.indicator.auth_state = overlay::AuthState::Invalid;
-                    state.indicator.failed_attempts.inc();
-                    state.indicator.last_update = Instant::now();
-                }
-            }
-            channel::Event::Closed => {
-                if state.lifecycle == LifeCycle::Locked {
-                    panic!("Auth loop closed early!")
-                }
-            }
-        })
-        .unwrap();
-
-    let background_image = match &config.background_image {
-        Some(path) => Some(load_image(&path)),
-        None => None,
+    let background_image = if config.background_mode != config::BackgroundMode::SolidColor {
+        match &config.background_image {
+            Some(path) => Some(load_image(&path)),
+            None => None,
+        }
+    } else {
+        None
     };
 
     let mut state = State {
@@ -158,7 +136,7 @@ fn main() {
         password: PasswordBuffer::new(),
         lifecycle: LifeCycle::Initing,
         end_signal: event_loop.get_signal(),
-        auth_req_send,
+        auth_req_send: None,
         indicator: Indicator {
             config: config.indicator.clone(),
             input_state: overlay::InputState::Idle,
@@ -174,15 +152,16 @@ fn main() {
         sigusr_received: Arc::new(AtomicBool::new(false)),
     };
 
-    let _lock = state.session_lock_state.lock(&qh).expect("Could not lock");
-
-    {
-        const SIGUSR1: i32 = 10;
-        match signal_hook::flag::register(SIGUSR1, Arc::clone(&state.sigusr_received)) {
-            Ok(_) => {}
-            Err(err) => error!("Failed to register SIGUSR1 handling with {err}"),
-        };
+    // Early dispatch to fastly create lock surfaces
+    event_loop.dispatch(None, &mut state).unwrap();
+    let lock = state.session_lock_state.lock(&qh).expect("Could not lock");
+    for output in state.output_state.outputs() {
+        state.create_lock_surface(&qh, &lock, output);
     }
+    state.draw(&conn, &qh);
+
+    state.create_auth_channel(&mut event_loop);
+    state.create_sigusr_interrupt_handler();
 
     event_loop
         .run(None, &mut state, |state| {
@@ -245,7 +224,7 @@ struct State {
     password: PasswordBuffer,
     lifecycle: LifeCycle,
     end_signal: LoopSignal,
-    auth_req_send: channel::Sender<PasswordBuffer>,
+    auth_req_send: Option<channel::Sender<PasswordBuffer>>,
     indicator: Indicator,
     clock: Clock,
     sigusr_received: Arc<AtomicBool>,
@@ -283,9 +262,9 @@ impl CompositorHandler for State {
         conn: &Connection,
         qh: &QueueHandle<Self>,
         _surface: &wl_surface::WlSurface,
-        time: u32,
+        _time: u32,
     ) {
-        self.draw(conn, qh, time);
+        self.draw(conn, qh);
     }
 
     fn surface_enter(
@@ -320,7 +299,10 @@ impl OutputHandler for State {
         qh: &QueueHandle<Self>,
         output: wl_output::WlOutput,
     ) {
-        self.create_lock_surface(qh, output);
+        if let Some(lock) = self.lock.take() {
+            self.create_lock_surface(qh, &lock, output);
+            self.lock = Some(lock);
+        }
     }
 
     fn update_output(
@@ -464,10 +446,10 @@ impl KeyboardHandler for State {
 
 impl SessionLockHandler for State {
     fn locked(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, session_lock: SessionLock) {
-        self.lock = Some(session_lock);
         for output in self.output_state.outputs() {
-            self.create_lock_surface(qh, output);
+            self.create_lock_surface(qh, &session_lock, output);
         }
+        self.lock = Some(session_lock);
     }
 
     fn finished(
@@ -495,7 +477,7 @@ impl SessionLockHandler for State {
             e.indicator_surface
                 .configure(&self.shm_state, width, height);
         });
-        self.draw(conn, qh, 0);
+        self.draw(conn, qh);
     }
 }
 
@@ -511,6 +493,42 @@ pub fn daemon(nochdir: bool, noclose: bool) -> Result<(), i32> {
 }
 
 impl State {
+    pub fn create_auth_channel(&mut self, event_loop: &mut EventLoop<Self>) {
+        let (auth_req_send, auth_res_recv) = create_and_run_auth_loop();
+        self.auth_req_send = Some(auth_req_send);
+        event_loop
+            .handle()
+            .insert_source(auth_res_recv, |evt, _metadata, state| match evt {
+                channel::Event::Msg(status) => {
+                    if status {
+                        if let Some(lock) = state.lock.take() {
+                            lock.unlock();
+                        }
+                        state.lock_surfaces.clear();
+                        state.lifecycle = LifeCycle::Authenticated;
+                    } else {
+                        state.indicator.auth_state = overlay::AuthState::Invalid;
+                        state.indicator.failed_attempts.inc();
+                        state.indicator.last_update = Instant::now();
+                    }
+                }
+                channel::Event::Closed => {
+                    if state.lifecycle == LifeCycle::Locked {
+                        panic!("Auth loop closed early!")
+                    }
+                }
+            })
+            .unwrap();
+    }
+
+    pub fn create_sigusr_interrupt_handler(&self) {
+        const SIGUSR1: i32 = 10;
+        match signal_hook::flag::register(SIGUSR1, self.sigusr_received.clone()) {
+            Ok(_) => {}
+            Err(err) => error!("Failed to register SIGUSR1 handling with {err}"),
+        };
+    }
+
     pub fn notify_ready_fd(&mut self) {
         use std::io::Write;
         use std::os::fd::FromRawFd;
@@ -527,12 +545,12 @@ impl State {
         }
     }
 
-    pub fn create_lock_surface(&mut self, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
-        let lock = match self.lock.as_ref() {
-            Some(lock) => lock,
-            None => return,
-        };
-
+    pub fn create_lock_surface(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        lock: &SessionLock,
+        output: wl_output::WlOutput,
+    ) {
         if self.output_to_lock_surfaces.contains_key(&output.id()) {
             return;
         }
@@ -565,7 +583,8 @@ impl State {
             } else if self.indicator.auth_state == overlay::AuthState::Validating {
                 // pass
             } else {
-                self.auth_req_send.send(self.password.take()).unwrap();
+                let password = self.password.take();
+                self.auth_req_send.as_ref().unwrap().send(password).unwrap();
                 self.indicator.auth_state = overlay::AuthState::Validating;
                 self.indicator.input_state = overlay::InputState::Idle;
             }
@@ -586,7 +605,7 @@ impl State {
         self.indicator.last_update = Instant::now();
     }
 
-    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>, _time: u32) {
+    pub fn draw(&mut self, _conn: &Connection, qh: &QueueHandle<Self>) {
         if Instant::now() - self.indicator.last_update >= Duration::from_secs(3) {
             self.indicator.input_state = overlay::InputState::Idle;
             self.indicator.auth_state = overlay::AuthState::Idle;
