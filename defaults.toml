@@ -1,6 +1,7 @@
 background_color = 0x1D1D1DFF
 background_image = "path/to/image"
 background_mode = "fill"
+ignore_empty_password = false
 show_clock = true
 show_indicator = true
 

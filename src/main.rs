@@ -480,9 +480,15 @@ impl State {
 
     pub fn handle_key_press_or_repeat(&mut self, event: keyboard::KeyEvent) {
         if event.keysym == keyboard::Keysym::Return {
-            self.auth_req_send.send(self.password.take()).unwrap();
-            self.indicator.auth_state = overlay::AuthState::Validating;
-            self.indicator.input_state = overlay::InputState::Idle;
+            if self.config.ignore_empty_password && self.password.unsecure().len() == 0 {
+                // pass
+            } else if self.indicator.auth_state == overlay::AuthState::Validating {
+                // pass
+            } else {
+                self.auth_req_send.send(self.password.take()).unwrap();
+                self.indicator.auth_state = overlay::AuthState::Validating;
+                self.indicator.input_state = overlay::InputState::Idle;
+            }
         } else if event.keysym == keyboard::Keysym::BackSpace {
             self.password.backspace();
             self.indicator.input_state = if self.password.unsecure().len() == 0 {

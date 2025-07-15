@@ -114,6 +114,7 @@ pub struct Config {
     pub background_mode: BackgroundMode,
     pub clock: Clock,
     pub indicator: Indicator,
+    pub ignore_empty_password: bool,
     pub show_clock: bool,
     pub show_indicator: bool,
 
