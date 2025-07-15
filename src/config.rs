@@ -1,4 +1,5 @@
-use std::ffi::OsString;
+use core::fmt;
+use std::{ffi::OsString, num::ParseIntError};
 
 use lexopt::ValueExt;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,13 @@ pub enum BackgroundMode {
     Fit,
     Center,
     Tile,
+}
+
+fn parse_int(value: &str) -> Result<i64, ParseIntError> {
+    match value.strip_prefix("0x") {
+        Some(hex) => i64::from_str_radix(hex, 16),
+        None => i64::from_str_radix(value, 10),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -26,7 +34,39 @@ impl<'de> Deserialize<'de> for Color {
     where
         D: serde::Deserializer<'de>,
     {
-        let u32_val: u32 = Deserialize::deserialize(deserializer)?;
+        struct U32Visitor;
+
+        impl<'de> serde::de::Visitor<'de> for U32Visitor {
+            type Value = u32;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a character")
+            }
+
+            #[inline]
+            fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                println!("H i64");
+                Ok(v as u32)
+            }
+
+            #[inline]
+            fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                if let Ok(u32_val) = parse_int(v) {
+                    Ok(u32_val as u32)
+                } else {
+                    Err(serde::de::Error::custom(
+                        "Invalid color. Please use a 0xRRGGBBAA value",
+                    ))
+                }
+            }
+        }
+        let u32_val: u32 = deserializer.deserialize_u32(U32Visitor)?;
         let bytes: [u8; 4] = u32_val.to_be_bytes();
         Ok(Color {
             red: (bytes[0] as f64 / 256.0),
@@ -49,7 +89,8 @@ impl Serialize for Color {
             (self.alpha * 256.0).round().clamp(0.0, 255.0) as u8,
         ];
         let u32_val: u32 = u32::from_be_bytes(bytes);
-        serializer.serialize_u32(u32_val)
+        let u32_str = format!("{:#08x}", u32_val);
+        serializer.serialize_str(&u32_str)
     }
 }
 
@@ -238,11 +279,12 @@ impl Config {
                 }
             }
             let default_value = &current_config.get(*key_parts.last().unwrap());
+
             let value = match default_value {
                 Some(toml::Value::String(_)) | None => {
                     toml::Value::String(value.parse::<String>()?)
                 }
-                Some(toml::Value::Integer(_)) => toml::Value::Integer(value.parse::<i64>()?),
+                Some(toml::Value::Integer(_)) => toml::Value::Integer(value.parse_with(parse_int)?),
                 Some(toml::Value::Float(_)) => toml::Value::Float(value.parse::<f64>()?),
                 Some(toml::Value::Boolean(_)) => toml::Value::Boolean(value.parse::<bool>()?),
                 _ => {
