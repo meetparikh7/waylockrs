@@ -1,13 +1,13 @@
 # rustlock configuration
 # - Only override the values you want to change.
-# - All colors are specified as 32-bit RGBA hex values: `0xRRGGBBAA`
+# - All colors are specified as 32-bit RGBA hex values: `"RRGGBBAA"`
 # - CLI Invocation:
 #   - All options can also be passed via command line as `--path.to.key value`
-#   - Example: `--clock.font-size 100.0` or `--background-color 0xFFFFFFFF`
+#   - Example: `--clock.font-size 100.0` or `--background-color "FFFFFFFF"`
 
 # --- General Settings ---
 
-background_color = 0x1D1D1DFF      # Background solid color (RGBA)
+background_color = "1D1D1DFF"      # Background solid color (RGBA)
 background_image = "path/to/image" # Optional background image; omit to use color only
 background_mode = "fill"           # Options: "stretch", "fill", "fit", "center", "tile"
 ignore_empty_password = false      # If true, skips auth check for empty passwords
@@ -22,9 +22,9 @@ daemonize = false                  # Detach process (like i3lock's default)
 show_seconds = false       # Toggle seconds in the clock display
 font = "sans-serif"        # Font family used for the clock
 font_size = 75.0           # Size of the clock text
-text_color = 0xFFFFFFFF    # RGBA text color for the clock
-outline_color = 0x1A1A1AC0 # Clock text outline color
-outline_width = 2          # Clock text outline thickness (pixels)
+text_color = "FFFFFFFF"    # RGBA text color for the clock
+outline_color = "1A1A1AC0" # Clock text outline color
+outline_width = 2.0        # Clock text outline thickness (pixels)
 
 # --- Indicator Ring and Text ---
 
@@ -32,7 +32,7 @@ outline_width = 2          # Clock text outline thickness (pixels)
 radius = 50.0                   # Radius of the circular indicator
 thickness = 10.0                # Thickness of the ring
 font = "sans-serif"             # Font used for indicator messages ("verifying", etc.)
-font_size = -1                  # Font size (-1 = auto/calc based on radius)
+font_size = -1.0                # Font size (-1 = auto/calc based on radius)
 show_caps_lock_indicator = true # Show caps lock ring segment
 show_caps_lock_text = true      # Show "Caps Lock" text
 hide_keyboard_layout = false    # Hide keyboard layout (true = hide, false = show)
@@ -43,43 +43,43 @@ show_failed_attempts = false    # Show failed attempt count
 # --- Indicator Ring Colors (Inside Circle) ---
 
 [indicator.colors.inside]
-input = 0x000000C0     # While typing
-cleared = 0xE5A445C0   # After backspace clears input
-caps_lock = 0x000000C0 # When Caps Lock is active
-verifying = 0x0072FFC0 # While verifying password
-wrong = 0xFA0000C0     # On failed attempt
+input = "000000C0"     # While typing
+cleared = "E5A445C0"   # After backspace clears input
+caps_lock = "000000C0" # When Caps Lock is active
+verifying = "0072FFC0" # While verifying password
+wrong = "FA0000C0"     # On failed attempt
 
 # --- Indicator Ring Colors (Outer Line Border) ---
 
 [indicator.colors.line]
-input = 0x000000FF     # While typing
-cleared = 0x000000FF   # After backspace clears input
-caps_lock = 0x000000FF # When Caps Lock is active
-verifying = 0x000000FF # While verifying password
-wrong = 0x000000FF     # On failed attempt
+input = "000000FF"     # While typing
+cleared = "000000FF"   # After backspace clears input
+caps_lock = "000000FF" # When Caps Lock is active
+verifying = "000000FF" # While verifying password
+wrong = "000000FF"     # On failed attempt
 
 # --- Indicator Ring Colors (Main Ring) ---
 
 [indicator.colors.ring]
-input = 0x337D00FF     # While typing
-cleared = 0xE5A445FF   # After backspace clears inpu
-caps_lock = 0xE5A445FF # When Caps Lock is activ
-verifying = 0x3300FFFF # While verifying passwor
-wrong = 0x7D3300FF     # On failed attemp
+input = "337D00FF"     # While typing
+cleared = "E5A445FF"   # After backspace clears inpu
+caps_lock = "E5A445FF" # When Caps Lock is activ
+verifying = "3300FFFF" # While verifying passwor
+wrong = "7D3300FF"     # On failed attemp
 
 # --- Indicator Text Colors ---
 
 [indicator.colors.text]
-input = 0xE5A445FF     # While typing
-cleared = 0x000000FF   # After backspace clears input
-caps_lock = 0xE5A445FF # When Caps Lock is active
-verifying = 0x000000FF # While verifying password
-wrong = 0x000000FF     # On failed attempt
+input = "E5A445FF"     # While typing
+cleared = "000000FF"   # After backspace clears input
+caps_lock = "E5A445FF" # When Caps Lock is active
+verifying = "000000FF" # While verifying password
+wrong = "000000FF"     # On failed attempt
 
 # --- Indicator Key/Backspace Highlights ---
 
 [indicator.highlights]
-backspace = 0xDB3300FF           # Segment highlight for backspace
-key = 0x33DB00FF                 # Segment highlight for keypress
-caps_lock_backspace = 0xDB3300FF # Backspace with Caps Lock
-caps_lock_key = 0x33DB00FF       # Keypress with Caps Lock
+backspace = "DB3300FF"           # Segment highlight for backspace
+key = "33DB00FF"                 # Segment highlight for keypress
+caps_lock_backspace = "DB3300FF" # Backspace with Caps Lock
+caps_lock_key = "33DB00FF"       # Keypress with Caps Lock

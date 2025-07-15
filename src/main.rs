@@ -5,6 +5,7 @@ mod config;
 mod easy_surface;
 mod keyboard_state;
 mod overlay;
+mod swaylock_config;
 
 use crate::{
     auth::{PasswordBuffer, create_and_run_auth_loop},
@@ -18,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use log::{error, info};
+use log::error;
 
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState},
@@ -60,13 +61,13 @@ fn main() {
     env_logger::init();
 
     let xdg_dirs = xdg::BaseDirectories::new();
-    let config_str = match xdg_dirs.get_config_file(Path::new("funlock/config.toml")) {
+    let config_path = Path::new("funlock/config.toml");
+    let config_str = match xdg_dirs.get_config_file(config_path) {
         Some(file) => {
             if file.exists() {
                 std::fs::read_to_string(file).unwrap()
             } else {
-                info!("Config file {:?} does not exist. Using defaults", file);
-                "".to_string()
+                swaylock_config::try_mapping_swalock_config(&xdg_dirs, &config_path)
             }
         }
         None => {

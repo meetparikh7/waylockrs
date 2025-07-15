@@ -1,8 +1,10 @@
 use core::fmt;
-use std::{ffi::OsString, num::ParseIntError};
+use std::{ffi::OsString, num::ParseIntError, str::FromStr};
 
 use lexopt::ValueExt;
 use serde::{Deserialize, Serialize};
+
+const DEFAULT_CONFIG_STR: &'static str = include_str!("../defaults.toml");
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,7 +50,6 @@ impl<'de> Deserialize<'de> for Color {
             where
                 E: serde::de::Error,
             {
-                println!("H i64");
                 Ok(v as u32)
             }
 
@@ -57,12 +58,24 @@ impl<'de> Deserialize<'de> for Color {
             where
                 E: serde::de::Error,
             {
-                if let Ok(u32_val) = parse_int(v) {
+                let unparsed = match v.strip_prefix("0x") {
+                    Some(hex) => hex,
+                    None => v,
+                };
+                let parsed = i64::from_str_radix(unparsed, 16);
+                if unparsed.len() == 8
+                    && let Ok(u32_val) = parsed
+                {
                     Ok(u32_val as u32)
+                } else if unparsed.len() == 6
+                    && let Ok(u32_val) = parsed
+                {
+                    Ok((u32_val as u32) << 8 | 0xFF)
                 } else {
-                    Err(serde::de::Error::custom(
-                        "Invalid color. Please use a 0xRRGGBBAA value",
-                    ))
+                    Err(serde::de::Error::custom(format!(
+                        "Invalid color. Please use a 0xRRGGBBAA value {:?}",
+                        v
+                    )))
                 }
             }
         }
@@ -89,8 +102,8 @@ impl Serialize for Color {
             (self.alpha * 256.0).round().clamp(0.0, 255.0) as u8,
         ];
         let u32_val: u32 = u32::from_be_bytes(bytes);
-        let u32_str = format!("{:#08x}", u32_val);
-        serializer.serialize_str(&u32_str)
+        let u32_str = format!("{:#010X}", u32_val);
+        serializer.serialize_str(&u32_str[2..])
     }
 }
 
@@ -165,7 +178,7 @@ pub struct Config {
     pub daemonize: bool,
 
     /// Workaround for CLI help as our Config loads the CLI flags
-    #[serde(alias = "help")]
+    #[serde(alias = "help", skip_serializing)]
     pub show_help: bool,
 }
 
@@ -225,10 +238,8 @@ impl Config {
         config.insert("help".to_string(), toml::Value::Boolean(false));
     }
 
-    fn merge_config_with_defaults(config_str: &str) -> toml::Table {
-        const DEFAULT_CONFIG_STR: &'static str = include_str!("../defaults.toml");
+    pub fn merge_config_with_defaults(user_config: toml::Table) -> toml::Table {
         let mut default_config = DEFAULT_CONFIG_STR.parse::<toml::Table>().unwrap();
-        let user_config = config_str.parse::<toml::Table>().unwrap();
 
         fn merge_table(orig: &toml::Table, provided: &toml::Table) -> toml::Table {
             let mut result = toml::Table::new();
@@ -269,10 +280,8 @@ impl Config {
                 if !current_config.contains_key(*key_part) {
                     let new_table = toml::Value::Table(toml::Table::new());
                     current_config.insert(key_part.to_string(), new_table);
-                    continue;
-                } else if let Some(toml::Value::Table(next_config)) =
-                    current_config.get_mut(*key_part)
-                {
+                }
+                if let Some(toml::Value::Table(next_config)) = current_config.get_mut(*key_part) {
                     current_config = next_config;
                 } else {
                     return Err(lexopt::Error::UnexpectedOption(key.to_string()));
@@ -300,9 +309,53 @@ impl Config {
     }
 
     pub fn parse(config_str: &str) -> Self {
-        let merged_config = Self::merge_config_with_defaults(config_str);
+        let user_config = config_str.parse::<toml::Table>().unwrap();
+        let merged_config = Self::merge_config_with_defaults(user_config);
         let merged_with_args = Self::merge_with_args(merged_config).unwrap();
         let config: Self = Config::deserialize(merged_with_args).unwrap();
+        config
+    }
+
+    pub fn exclusive_config(config: Config) -> toml::Table {
+        let output = toml::to_string_pretty(&config).expect("Failed to serialize");
+        let mut config = toml::Table::from_str(&output).expect("Failed to deserialize");
+
+        let mut default_config = DEFAULT_CONFIG_STR.parse::<toml::Table>().unwrap();
+        Self::default_toml_overrides(&mut default_config);
+        let default_config = default_config;
+
+        fn remove_defaults(user: &mut toml::Table, default: &toml::Table) {
+            use toml::Value;
+
+            let keys: Vec<String> = user.keys().cloned().collect();
+            for key in keys {
+                if let Some(Value::Table(default_table)) = default.get(&key) {
+                    let remove_key = if let Some(Value::Table(user_table)) = user.get_mut(&key) {
+                        remove_defaults(user_table, default_table);
+                        user_table.is_empty()
+                    } else {
+                        false
+                    };
+                    if remove_key {
+                        user.remove(&key);
+                    }
+                } else if let Some(default_value) = default.get(&key) {
+                    let is_equal = match (default_value, user.get(&key).unwrap()) {
+                        (Value::String(d), Value::String(u)) => d == u,
+                        (Value::Integer(d), Value::Integer(u)) => d == u,
+                        (Value::Float(d), Value::Float(u)) => d == u,
+                        (Value::Boolean(d), Value::Boolean(u)) => d == u,
+                        (Value::Datetime(d), Value::Datetime(u)) => d == u,
+                        (_, _) => false,
+                    };
+                    if is_equal {
+                        user.remove(&key);
+                    }
+                }
+            }
+        }
+
+        remove_defaults(&mut config, &default_config);
         config
     }
 }
