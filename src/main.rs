@@ -184,6 +184,7 @@ fn main() {
             state.lifecycle = match state.lifecycle {
                 LifeCycle::Initing => {
                     if state.lock.is_some() {
+                        state.notify_ready_fd();
                         LifeCycle::Locked
                     } else {
                         LifeCycle::Initing
@@ -494,6 +495,22 @@ impl SessionLockHandler for State {
 }
 
 impl State {
+    pub fn notify_ready_fd(&mut self) {
+        use std::io::Write;
+        use std::os::fd::FromRawFd;
+
+        if self.config.ready_fd >= 0 {
+            let mut f = unsafe { std::fs::File::from_raw_fd(self.config.ready_fd) };
+            match write!(&mut f, "\n") {
+                Ok(_) => {}
+                Err(err) => {
+                    error!("Failed to send readiness notification with error {err}")
+                }
+            };
+            self.config.ready_fd = -1;
+        }
+    }
+
     pub fn create_lock_surface(&mut self, qh: &QueueHandle<Self>, output: wl_output::WlOutput) {
         let lock = match self.lock.as_ref() {
             Some(lock) => lock,

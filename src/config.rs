@@ -117,6 +117,7 @@ pub struct Config {
     pub ignore_empty_password: bool,
     pub show_clock: bool,
     pub show_indicator: bool,
+    pub ready_fd: i32,
 
     /// Workaround for CLI help as our Config loads the CLI flags
     #[serde(alias = "help")]
