@@ -9,6 +9,7 @@ daemonize = false
 
 [clock]
 show_seconds = false
+font = "sans-serif"
 font_size = 75.0
 text_color = 0xFFFFFFFF
 outline_color = 0x1A1A1AC0
@@ -17,6 +18,8 @@ outline_width = 2
 [indicator]
 radius = 50.0
 thickness = 10.0
+font = "sans-serif"
+font_size = -1
 show_caps_lock_indicator = true
 show_caps_lock_text = true
 hide_keyboard_layout = false

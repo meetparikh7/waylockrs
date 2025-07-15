@@ -73,15 +73,11 @@ pub struct Indicator {
     pub failed_attempts: AttemptsCounter,
 }
 
-fn configure_font_drawing(context: &cairo::Context, font_size: f64) {
+fn configure_font_drawing(context: &cairo::Context, font: &str, font_size: f64) {
     let mut font_options = context.font_options().unwrap();
     font_options.set_hint_style(cairo::HintStyle::Full);
     context.set_font_options(&font_options);
-    context.select_font_face(
-        "sans-serif",
-        cairo::FontSlant::Normal,
-        cairo::FontWeight::Normal,
-    );
+    context.select_font_face(font, cairo::FontSlant::Normal, cairo::FontWeight::Normal);
     context.set_font_size(font_size);
 }
 
@@ -151,6 +147,10 @@ impl Indicator {
         let xc = (width as f64) * scale / 2.0;
         let yc = (height as f64) * scale * 0.5 + arc_radius * 3.0;
 
+        if self.config.font_size <= 0.0 {
+            self.config.font_size = arc_radius / 3.0;
+        }
+
         // fill inner circle
         context.set_line_width(0.0);
         context.arc(xc, yc, arc_radius, 0.0, 2.0 * PI);
@@ -167,7 +167,7 @@ impl Indicator {
         if self.config.show_text
             && let Some(text) = self.text_for_state()
         {
-            configure_font_drawing(context, arc_radius / 3.0);
+            configure_font_drawing(context, &self.config.font, self.config.font_size);
             self.set_color_for_state(context, &self.config.colors.text);
             let extents = context.text_extents(text).unwrap();
             let font_extents = context.font_extents().unwrap();
@@ -180,11 +180,11 @@ impl Indicator {
         }
 
         if show_layout {
-            configure_font_drawing(context, arc_radius / 3.0);
+            configure_font_drawing(context, &self.config.font, self.config.font_size);
             let text = keyboard.get_active_layout();
             let extents = context.text_extents(text).unwrap();
             let font_extents = context.font_extents().unwrap();
-            let box_padding = 4.0 * scale;
+            let box_padding = font_extents.height() * 0.2 * scale;
             let yc = yc + arc_radius + arc_thickness + box_padding;
             let (x_off, y_off) = (extents.x_advance() / 2.0, font_extents.height() / 2.0);
             self.set_color_for_state(context, &self.config.colors.inside);
@@ -259,7 +259,7 @@ impl Clock {
             _ => "Unknown time".to_string(),
         };
 
-        configure_font_drawing(context, self.config.font_size);
+        configure_font_drawing(context, &self.config.font, self.config.font_size);
 
         let extents = context.text_extents(&text).unwrap();
         let font_extents = context.font_extents().unwrap();

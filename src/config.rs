@@ -67,6 +67,7 @@ pub struct ColorSet {
 #[serde(deny_unknown_fields)]
 pub struct Clock {
     pub show_seconds: bool,
+    pub font: String,
     pub font_size: f64,
     pub text_color: Color,
     pub outline_color: Color,
@@ -98,6 +99,8 @@ pub struct Indicator {
     pub highlights: IndicatorHighlights,
     pub radius: f64,
     pub thickness: f64,
+    pub font: String,
+    pub font_size: f64,
     pub show_caps_lock_indicator: bool,
     pub show_caps_lock_text: bool,
     pub hide_keyboard_layout: bool,
