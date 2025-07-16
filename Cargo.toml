@@ -1,7 +1,8 @@
 [package]
-name = "funlock"
+name = "waylockrs"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 cairo-rs = { version = "0.20.12", default-features = false }

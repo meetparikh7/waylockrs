@@ -512,30 +512,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "funlock"
-version = "0.1.0"
-dependencies = [
- "cairo-rs",
- "env_logger",
- "image",
- "lexopt",
- "libc",
- "log",
- "pam-client",
- "rand 0.9.1",
- "secstr",
- "serde",
- "signal-hook",
- "smithay-client-toolkit",
- "time",
- "toml 0.9.2",
- "users",
- "wayland-client",
- "xdg",
- "xkbcommon",
-]
-
-[[package]]
 name = "getrandom"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1880,6 +1856,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbcebb399c77d5aa9fa5db874806ee7b4eba4e73650948e8f93963f128896615"
 dependencies = [
  "pkg-config",
+]
+
+[[package]]
+name = "waylockrs"
+version = "0.1.0"
+dependencies = [
+ "cairo-rs",
+ "env_logger",
+ "image",
+ "lexopt",
+ "libc",
+ "log",
+ "pam-client",
+ "rand 0.9.1",
+ "secstr",
+ "serde",
+ "signal-hook",
+ "smithay-client-toolkit",
+ "time",
+ "toml 0.9.2",
+ "users",
+ "wayland-client",
+ "xdg",
+ "xkbcommon",
 ]
 
 [[package]]

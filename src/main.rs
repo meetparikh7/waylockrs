@@ -61,7 +61,7 @@ fn main() {
     env_logger::init();
 
     let xdg_dirs = xdg::BaseDirectories::new();
-    let config_path = Path::new("funlock/config.toml");
+    let config_path = Path::new("waylockrs/config.toml");
     let config_str = match xdg_dirs.get_config_file(config_path) {
         Some(file) => {
             if file.exists() {
@@ -78,10 +78,10 @@ fn main() {
 
     let config = Config::parse(&config_str);
     if config.show_help {
-        println!("Usage: funlock --background-image path/to/image");
+        println!("Usage: waylockrs --background-image path/to/image");
         println!("Please refer to the default config for all options");
         println!("");
-        println!("Note: config can be specified in $XDG_CONFIG_DIR/funlock/config.toml");
+        println!("Note: config can be specified in $XDG_CONFIG_DIR/waylockrs/config.toml");
         println!("Note: or via CLI, e.g. --clock.font-size=100.0");
         return;
     }

@@ -7,7 +7,7 @@ use secstr::SecVec;
 use smithay_client_toolkit::reexports::{calloop::EventLoop, calloop::channel};
 use users::get_current_username;
 
-const SERVICE_NAME: &str = "funlock";
+const SERVICE_NAME: &str = "waylockrs";
 
 pub struct PasswordBuffer(SecVec<u8>);
 

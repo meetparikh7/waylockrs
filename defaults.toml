@@ -1,9 +1,12 @@
-# rustlock configuration
-# - Only override the values you want to change.
-# - All colors are specified as 32-bit RGBA hex values: `"RRGGBBAA"`
-# - CLI Invocation:
-#   - All options can also be passed via command line as `--path.to.key value`
-#   - Example: `--clock.font-size 100.0` or `--background-color "FFFFFFFF"`
+# --- waylockrs configuration  ---
+#
+# * Only override the values you want to change.
+# * All colors are specified as 32-bit RGBA hex values
+#   * They are encoded either as strings `"RRGGBBAA"`
+#   * Or as integers, preferably in hexadecimal as 0xRRGGBBAA
+# * CLI Invocation:
+#   * All options can also be passed via command line as `--path.to.key value`
+#   * Example: `--clock.font-size 100.0` or `--background-color "FFFFFFFF"`
 
 # --- General Settings ---
 
