@@ -17,7 +17,11 @@ config if found.
 
 ## Installation
 
-TODO: packaging
+| Distribution | Method     | Steps                                                                 |
+|--------------|------------|-----------------------------------------------------------------------|
+| Fedora       | [DNF Copr] | `sudo dnf copr enable meetp7/waylockrs && sudo dnf install waylockrs` |
+
+Please raise a Github issue if you are interested in packaging it!
 
 ### Compiling from Source
 
@@ -42,3 +46,4 @@ sudo cp pam/waylockrs /etc/pam.d/waylockrs       # Copy the pam config file
 ```
 
 [swaylock]: https://github.com/swaywm/swaylock
+[DNF Copr]: https://copr.fedorainfracloud.org/coprs/meetp7/waylockrs/
